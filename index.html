@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>unseen.codes</title>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root { --ink: #000; --paper: #fff; --muted: #bbb; }
+
+    html, body {
+      width: 100%; height: 100%;
+      background: var(--paper);
+      overflow: hidden;
+      font-family: 'Courier New', Courier, monospace;
+    }
+
+    /* ── ghost code layer ─────────────────────────────────────── */
+    #ghost {
+      position: fixed; inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+    }
+    .ghost-line {
+      position: absolute;
+      white-space: nowrap;
+      font-size: 11px;
+      letter-spacing: 1px;
+      color: #000;
+      opacity: 0;
+      animation: ghostRise var(--dur, 18s) linear var(--delay, 0s) infinite;
+    }
+    @keyframes ghostRise {
+      0%   { transform: translateY(110vh); opacity: 0; }
+      10%  { opacity: var(--peak, 0.04); }
+      85%  { opacity: var(--peak, 0.04); }
+      100% { transform: translateY(-20vh); opacity: 0; }
+    }
+
+    /* ── canvas ───────────────────────────────────────────────── */
+    #canvas {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+    }
+
+    /* ── bottom strip ─────────────────────────────────────────── */
+    footer {
+      position: fixed;
+      bottom: 48px; left: 0; right: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 48px;
+      opacity: 0;
+      animation: fadeUp 1.2s ease 2.4s forwards;
+    }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    footer span {
+      font-size: 10px;
+      letter-spacing: 5px;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    footer a {
+      font-size: 10px;
+      letter-spacing: 3px;
+      text-transform: lowercase;
+      color: var(--ink);
+      text-decoration: none;
+      border-bottom: 1px solid currentColor;
+      padding-bottom: 2px;
+      transition: color .25s;
+    }
+    footer a:hover { color: var(--muted); }
+
+    /* ── top mark ─────────────────────────────────────────────── */
+    header {
+      position: fixed;
+      top: 40px; left: 50%;
+      transform: translateX(-50%);
+      font-size: 10px;
+      letter-spacing: 6px;
+      text-transform: uppercase;
+      color: var(--muted);
+      opacity: 0;
+      animation: fadeUp 1s ease 2.8s forwards;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="ghost"></div>
+  <canvas id="canvas"></canvas>
+
+  <header>est. 2024</header>
+
+  <footer>
+    <span>software development studio</span>
+    <a href="mailto:hello@unseen.codes">hello@unseen.codes</a>
+  </footer>
+
+<script>
+(function () {
+  /* ── ghost code background ──────────────────────────────────── */
+  const snippets = [
+    'const hidden = () => null;',
+    'export default undefined;',
+    'if (!visible) render();',
+    '// TODO: make it unseen',
+    'opacity: 0; pointer-events: none;',
+    'git commit -m "silent deploy"',
+    'async function vanish(x) { await x; }',
+    'display: none; /* intentional */',
+    'return void 0;',
+    'const shadow = new Proxy({}, {});',
+    '.unseen { visibility: hidden; }',
+    '// you were never here',
+    'delete window.__trace__;',
+    'process.stdout.write("");',
+    'rm -rf ./logs 2>/dev/null',
+    'console.log = () => {};',
+    '/* redacted */',
+    'null ?? undefined',
+  ];
+  const ghost = document.getElementById('ghost');
+  const cols = Math.ceil(window.innerWidth / 320);
+  for (let i = 0; i < cols * 3; i++) {
+    const el = document.createElement('div');
+    el.className = 'ghost-line';
+    el.textContent = snippets[i % snippets.length];
+    el.style.setProperty('--dur',  (14 + Math.random() * 12) + 's');
+    el.style.setProperty('--delay', (Math.random() * 16) + 's');
+    el.style.setProperty('--peak', (0.025 + Math.random() * 0.04).toFixed(3));
+    el.style.left = (Math.random() * 100) + 'vw';
+    ghost.appendChild(el);
+  }
+
+  /* ── particle text ──────────────────────────────────────────── */
+  const canvas = document.getElementById('canvas');
+  const ctx    = canvas.getContext('2d');
+
+  let W = canvas.width  = window.innerWidth;
+  let H = canvas.height = window.innerHeight;
+
+  const MOUSE  = { x: -9999, y: -9999 };
+  const REPEL  = 110;
+  const GAP    = 5;          // sample every N px
+  const SPRING = 0.048;
+  const DAMP   = 0.82;
+  const DRIFT  = 0.18;       // random wobble magnitude
+
+  let particles = [];
+  let glitchTimer = 0;
+  let glitching   = false;
+
+  /* sample text into pixel coords */
+  function sampleText(text) {
+    const tmp   = document.createElement('canvas');
+    tmp.width   = W;
+    tmp.height  = H;
+    const tc    = tmp.getContext('2d');
+    const size  = Math.min(W / 8.2, 110, H / 4);
+    tc.font     = `200 ${size}px 'Courier New', monospace`;
+    tc.textAlign    = 'left';
+    tc.textBaseline = 'middle';
+    tc.fillStyle    = '#000';
+    tc.fillText(text, W * 0.08, H * 0.32);
+    const data   = tc.getImageData(0, 0, W, H).data;
+    const points = [];
+    for (let y = 0; y < H; y += GAP)
+      for (let x = 0; x < W; x += GAP)
+        if (data[(y * W + x) * 4 + 3] > 120)
+          points.push({ x, y });
+    return points;
+  }
+
+  class Particle {
+    constructor(tx, ty) {
+      this.tx = tx; this.ty = ty;
+      /* start scattered */
+      this.x  = Math.random() * W;
+      this.y  = Math.random() * H;
+      this.vx = (Math.random() - .5) * 4;
+      this.vy = (Math.random() - .5) * 4;
+      this.r  = Math.random() * 1.2 + 0.4;
+      this.alpha = 0;
+      this.targetAlpha = Math.random() * 0.35 + 0.65;
+      /* glitch offset */
+      this.ox = 0;
+    }
+
+    update(t) {
+      /* spring toward target */
+      const dx = (this.tx + this.ox) - this.x;
+      const dy = this.ty - this.y;
+      this.vx += dx * SPRING + (Math.random() - .5) * DRIFT;
+      this.vy += dy * SPRING + (Math.random() - .5) * DRIFT;
+
+      /* mouse repulsion */
+      const mdx  = this.x - MOUSE.x;
+      const mdy  = this.y - MOUSE.y;
+      const dist2 = mdx * mdx + mdy * mdy;
+      if (dist2 < REPEL * REPEL) {
+        const d = Math.sqrt(dist2) || 1;
+        const f = ((REPEL - d) / REPEL) * 6;
+        this.vx += (mdx / d) * f;
+        this.vy += (mdy / d) * f;
+      }
+
+      this.vx *= DAMP;
+      this.vy *= DAMP;
+      this.x  += this.vx;
+      this.y  += this.vy;
+
+      /* fade in */
+      this.alpha += (this.targetAlpha - this.alpha) * 0.06;
+    }
+
+    draw() {
+      ctx.globalAlpha = Math.max(0, Math.min(1, this.alpha));
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function build() {
+    const pts = sampleText('unseen.codes');
+    particles = pts.map(p => new Particle(p.x, p.y));
+  }
+
+  /* ── glitch effect ──────────────────────────────────────────── */
+  function triggerGlitch() {
+    glitching = true;
+    const shift = (Math.random() - .5) * 28;
+    const slice1 = H * (.3 + Math.random() * .2);
+    const slice2 = slice1 + 20 + Math.random() * 60;
+    particles.forEach(p => {
+      if (p.ty > slice1 && p.ty < slice2) p.ox = shift;
+    });
+    setTimeout(() => {
+      particles.forEach(p => p.ox = 0);
+      glitching = false;
+    }, 80 + Math.random() * 120);
+  }
+
+  /* ── render loop ────────────────────────────────────────────── */
+  let then = 0;
+  function loop(ts) {
+    requestAnimationFrame(loop);
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#000';
+
+    particles.forEach(p => { p.update(ts); p.draw(); });
+
+    ctx.globalAlpha = 1;
+
+    /* schedule random glitch */
+    glitchTimer -= 16;
+    if (glitchTimer <= 0 && !glitching) {
+      glitchTimer = 3000 + Math.random() * 7000;
+      triggerGlitch();
+    }
+  }
+
+  /* ── events ─────────────────────────────────────────────────── */
+  window.addEventListener('mousemove', e => {
+    MOUSE.x = e.clientX; MOUSE.y = e.clientY;
+  });
+  window.addEventListener('mouseleave', () => {
+    MOUSE.x = MOUSE.y = -9999;
+  });
+  /* touch */
+  window.addEventListener('touchmove', e => {
+    MOUSE.x = e.touches[0].clientX;
+    MOUSE.y = e.touches[0].clientY;
+  }, { passive: true });
+  window.addEventListener('touchend', () => {
+    MOUSE.x = MOUSE.y = -9999;
+  });
+
+  let resizeId;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeId);
+    resizeId = setTimeout(() => {
+      W = canvas.width  = window.innerWidth;
+      H = canvas.height = window.innerHeight;
+      build();
+    }, 150);
+  });
+
+  build();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
