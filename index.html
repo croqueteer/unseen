@@ -156,10 +156,11 @@
   const DAMP   = 0.82;
   const DRIFT  = 0.18;       // random wobble magnitude
 
-  let particles = [];
+  let particles  = [];
   let glitchTimer = 0;
   let glitching   = false;
   let crowMode    = false;
+  let hoverTimer  = 0;
 
   /* sample text into pixel coords */
   function sampleText(text) {
@@ -312,9 +313,25 @@
       particles = particles.filter(p => !p.offscreen);
       if (particles.length === 0) {
         crowMode = false;
+        hoverTimer = 0;
         build();
       }
     } else {
+      /* hover-to-scatter: check if mouse is near any particle */
+      const nearText = MOUSE.x !== -9999 && particles.some(p => {
+        const dx = p.x - MOUSE.x, dy = p.y - MOUSE.y;
+        return dx * dx + dy * dy < 55 * 55;
+      });
+      if (nearText) {
+        hoverTimer += 16;
+        if (hoverTimer >= 2000) {
+          crowMode = true;
+          particles.forEach(p => p.enterCrowMode());
+        }
+      } else {
+        hoverTimer = 0;
+      }
+
       /* schedule random glitch */
       glitchTimer -= 16;
       if (glitchTimer <= 0 && !glitching) {
@@ -325,13 +342,6 @@
   }
 
   /* ── events ─────────────────────────────────────────────────── */
-  window.addEventListener('click', () => {
-    if (!crowMode && particles.length > 0) {
-      crowMode = true;
-      particles.forEach(p => p.enterCrowMode());
-    }
-  });
-
   window.addEventListener('mousemove', e => {
     MOUSE.x = e.clientX; MOUSE.y = e.clientY;
   });
