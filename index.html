@@ -319,7 +319,7 @@
     } else {
       /* hover-to-scatter: check if mouse is near any particle */
       const nearText = MOUSE.x !== -9999 && particles.some(p => {
-        const dx = p.x - MOUSE.x, dy = p.y - MOUSE.y;
+        const dx = p.tx - MOUSE.x, dy = p.ty - MOUSE.y;
         return dx * dx + dy * dy < 55 * 55;
       });
       if (nearText) {
