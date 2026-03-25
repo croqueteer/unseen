@@ -159,6 +159,7 @@
   let particles = [];
   let glitchTimer = 0;
   let glitching   = false;
+  let crowMode    = false;
 
   /* sample text into pixel coords */
   function sampleText(text) {
@@ -194,9 +195,37 @@
       this.targetAlpha = Math.random() * 0.35 + 0.65;
       /* glitch offset */
       this.ox = 0;
+      /* crow */
+      this.isCrow     = false;
+      this.cvx        = 0;
+      this.cvy        = 0;
+      this.flapPhase  = Math.random() * Math.PI * 2;
+      this.flapSpeed  = 4 + Math.random() * 5;
+      this.crowScale  = 0;
+      this.offscreen  = false;
+    }
+
+    enterCrowMode() {
+      this.isCrow    = true;
+      const angle    = -Math.PI / 2 + (Math.random() - .5) * Math.PI * 1.1;
+      const speed    = 0.8 + Math.random() * 1.6;
+      this.cvx       = Math.cos(angle) * speed;
+      this.cvy       = Math.sin(angle) * speed;
+      this.flapPhase = Math.random() * Math.PI * 2;
+      this.crowScale = 0;
     }
 
     update(t) {
+      if (this.isCrow) {
+        this.crowScale  = Math.min(1, this.crowScale + 0.05);
+        this.cvy       -= 0.015;
+        this.x         += this.cvx;
+        this.y         += this.cvy;
+        this.flapPhase += this.flapSpeed * 0.016;
+        if (this.x < -80 || this.x > W + 80 || this.y < -H * 0.5) this.offscreen = true;
+        return;
+      }
+
       /* spring toward target */
       const dx = (this.tx + this.ox) - this.x;
       const dy = this.ty - this.y;
@@ -224,6 +253,23 @@
     }
 
     draw() {
+      if (this.isCrow) {
+        const s    = this.crowScale;
+        const size = 14 * s;
+        const flap = Math.sin(this.flapPhase) * size * 0.55;
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.globalAlpha  = Math.min(1, this.alpha);
+        ctx.strokeStyle  = '#000';
+        ctx.lineWidth    = 1.4;
+        ctx.beginPath();
+        ctx.moveTo(-size,      flap * 0.3);
+        ctx.quadraticCurveTo(-size * 0.5, flap, 0, 0);
+        ctx.quadraticCurveTo( size * 0.5, flap, size, flap * 0.3);
+        ctx.stroke();
+        ctx.restore();
+        return;
+      }
       ctx.globalAlpha = Math.max(0, Math.min(1, this.alpha));
       ctx.beginPath();
       ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
@@ -262,15 +308,30 @@
 
     ctx.globalAlpha = 1;
 
-    /* schedule random glitch */
-    glitchTimer -= 16;
-    if (glitchTimer <= 0 && !glitching) {
-      glitchTimer = 3000 + Math.random() * 7000;
-      triggerGlitch();
+    if (crowMode) {
+      particles = particles.filter(p => !p.offscreen);
+      if (particles.length === 0) {
+        crowMode = false;
+        build();
+      }
+    } else {
+      /* schedule random glitch */
+      glitchTimer -= 16;
+      if (glitchTimer <= 0 && !glitching) {
+        glitchTimer = 3000 + Math.random() * 7000;
+        triggerGlitch();
+      }
     }
   }
 
   /* ── events ─────────────────────────────────────────────────── */
+  window.addEventListener('click', () => {
+    if (!crowMode && particles.length > 0) {
+      crowMode = true;
+      particles.forEach(p => p.enterCrowMode());
+    }
+  });
+
   window.addEventListener('mousemove', e => {
     MOUSE.x = e.clientX; MOUSE.y = e.clientY;
   });
