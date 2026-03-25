@@ -1,3 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <path d="M3 17 Q9.5 9 16 17 Q22.5 9 29 17" stroke="#000" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M16 15 Q10 6 2 12 Q8 16 16 15Z" fill="#000"/>
+  <path d="M16 15 Q22 6 30 12 Q24 16 16 15Z" fill="#000"/>
+  <ellipse cx="16" cy="16" rx="2.5" ry="1.8" fill="#000"/>
+  <path d="M14 17 L12.5 20 L16 18.5 L19.5 20 L18 17Z" fill="#000"/>
 </svg>
