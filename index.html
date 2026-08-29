@@ -4,22 +4,32 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>unseen.codes</title>
+  <meta name="description" content="Backend systems and full-stack web for products that must scale, stay correct, and stay up. Two decades." />
   <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
-    :root { --ink: #000; --paper: #fff; --muted: #bbb; }
+    :root { --ink: #000; --paper: #fff; --muted: #bbb; --rule: #eaeaea; }
 
     html, body {
-      width: 100%; height: 100%;
+      width: 100%;
       background: var(--paper);
-      overflow: hidden;
       font-family: 'Courier New', Courier, monospace;
+      color: var(--ink);
+      overflow-x: hidden;
+    }
+
+    /* ── hero (viewport-sized stage for the animation) ─────────── */
+    .hero {
+      position: relative;
+      width: 100%;
+      height: 100vh;
+      overflow: hidden;
     }
 
     /* ── ghost code layer ─────────────────────────────────────── */
     #ghost {
-      position: fixed; inset: 0;
+      position: absolute; inset: 0;
       pointer-events: none;
       overflow: hidden;
     }
@@ -41,14 +51,14 @@
 
     /* ── canvas ───────────────────────────────────────────────── */
     #canvas {
-      position: fixed;
+      position: absolute;
       top: 0; left: 0;
       width: 100%; height: 100%;
     }
 
-    /* ── bottom strip ─────────────────────────────────────────── */
-    footer {
-      position: fixed;
+    /* ── bottom strip (inside hero) ───────────────────────────── */
+    .hero-footer {
+      position: absolute;
       bottom: 48px; left: 0; right: 0;
       display: flex;
       justify-content: center;
@@ -62,14 +72,14 @@
       to   { opacity: 1; transform: translateY(0); }
     }
 
-    footer span {
+    .hero-footer span {
       font-size: 10px;
       letter-spacing: 5px;
       text-transform: uppercase;
       color: var(--muted);
     }
 
-    footer a {
+    .hero-footer a {
       font-size: 10px;
       letter-spacing: 3px;
       text-transform: lowercase;
@@ -79,31 +89,236 @@
       padding-bottom: 2px;
       transition: color .25s;
     }
-    footer a:hover { color: var(--muted); }
+    .hero-footer a:hover { color: var(--muted); }
 
-    /* ── top mark ─────────────────────────────────────────────── */
-    header {
-      position: fixed;
-      top: 40px; left: 50%;
+    /* ── scroll hint ──────────────────────────────────────────── */
+    .scroll-hint {
+      position: absolute;
+      bottom: 16px; left: 50%;
       transform: translateX(-50%);
-      font-size: 10px;
-      letter-spacing: 6px;
+      font-size: 9px;
+      letter-spacing: 4px;
       text-transform: uppercase;
       color: var(--muted);
       opacity: 0;
-      animation: fadeUp 1s ease 2.8s forwards;
+      animation: fadeUp 1s ease 3.6s forwards, hintPulse 2.4s ease-in-out 4s infinite;
+    }
+    @keyframes hintPulse {
+      0%, 100% { opacity: .45; }
+      50%      { opacity: .9; }
+    }
+
+    /* ── content sections ─────────────────────────────────────── */
+    main {
+      max-width: 620px;
+      margin: 0 auto;
+      padding: 0 32px;
+    }
+
+    section.deck {
+      padding: 96px 0;
+      border-top: 1px solid var(--rule);
+    }
+    section.deck:first-of-type { border-top: 0; padding-top: 128px; }
+
+    .deck h2 {
+      font-size: 10px;
+      font-weight: 400;
+      letter-spacing: 6px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 40px;
+    }
+
+    .deck p, .deck li, .entry pre {
+      font-size: 13px;
+      line-height: 1.9;
+      color: var(--ink);
+    }
+    .deck p + p { margin-top: 20px; }
+
+    .deck ul { list-style: none; }
+    .deck ul li {
+      padding-left: 24px;
+      position: relative;
+    }
+    .deck ul li::before {
+      content: '·';
+      position: absolute;
+      left: 8px;
+      color: var(--muted);
+    }
+
+    /* ── work entries ─────────────────────────────────────────── */
+    .work { display: flex; flex-direction: column; gap: 40px; }
+    .entry { display: grid; grid-template-columns: 48px 1fr; gap: 20px; }
+    .entry .num {
+      font-size: 10px;
+      letter-spacing: 3px;
+      color: var(--muted);
+      padding-top: 3px;
+    }
+    .entry .meta {
+      font-size: 10px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+    .entry .body {
+      font-size: 13px;
+      line-height: 1.9;
+    }
+
+    /* ── page footer ──────────────────────────────────────────── */
+    .page-footer {
+      max-width: 620px;
+      margin: 0 auto;
+      padding: 64px 32px 96px;
+      border-top: 1px solid var(--rule);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 10px;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .page-footer a {
+      color: var(--ink);
+      text-decoration: none;
+      border-bottom: 1px solid currentColor;
+      padding-bottom: 2px;
+      text-transform: lowercase;
+      letter-spacing: 3px;
+    }
+    .page-footer a:hover { color: var(--muted); }
+
+    @media (max-width: 520px) {
+      main { padding: 0 24px; }
+      section.deck { padding: 72px 0; }
+      .entry { grid-template-columns: 36px 1fr; gap: 12px; }
+      .page-footer { flex-direction: column; gap: 20px; text-align: center; }
     }
   </style>
 </head>
 <body>
 
-  <div id="ghost"></div>
-  <canvas id="canvas"></canvas>
+  <section class="hero">
+    <div id="ghost"></div>
+    <canvas id="canvas"></canvas>
 
-  <header>est. 2024</header>
+    <div class="hero-footer">
+      <span>software development studio</span>
+      <a href="mailto:hello@unseen.codes">hello@unseen.codes</a>
+    </div>
 
-  <footer>
-    <span>software development studio</span>
+    <div class="scroll-hint">scroll</div>
+  </section>
+
+  <main>
+    <section class="deck">
+      <h2>what</h2>
+      <p>backends for products that must scale, stay correct, and stay up.</p>
+      <p>also full-stack web, end to end.</p>
+      <p>two decades of it.</p>
+      <p>currently taking a small number of engagements. greenfield preferred.</p>
+    </section>
+
+    <section class="deck">
+      <h2>selected work</h2>
+      <div class="work">
+
+        <div class="entry">
+          <div class="num">[01]</div>
+          <div>
+            <div class="meta">national infrastructure · property registry</div>
+            <div class="body">
+              registration and delivery system for a national land registry —
+              land, apartments, houses. system of record for a country's property.
+            </div>
+          </div>
+        </div>
+
+        <div class="entry">
+          <div class="num">[02]</div>
+          <div>
+            <div class="meta">online poker · boom era</div>
+            <div class="body">
+              scaled a poker platform through exponential growth. millions of
+              hands dealt.
+            </div>
+          </div>
+        </div>
+
+        <div class="entry">
+          <div class="num">[03]</div>
+          <div>
+            <div class="meta">social gaming · top-tier facebook title</div>
+            <div class="body">
+              backend behind one of the largest social games of the era.
+              tens of millions of daily active players.
+            </div>
+          </div>
+        </div>
+
+        <div class="entry">
+          <div class="num">[04]</div>
+          <div>
+            <div class="meta">social gaming · top-chart facebook title</div>
+            <div class="body">
+              live-ops backend for another chart-topping title. kept it running
+              while the platform constantly updated.
+            </div>
+          </div>
+        </div>
+
+        <div class="entry">
+          <div class="num">[05]</div>
+          <div>
+            <div class="meta">mobile gaming · co-founder / backend</div>
+            <div class="body">
+              built a studio from zero. shipped social and mid-core titles on
+              smartphones. hired and led the engineering team. company acquired.
+            </div>
+          </div>
+        </div>
+
+        <div class="entry">
+          <div class="num">[06]</div>
+          <div>
+            <div class="meta">vilami.io · current</div>
+            <div class="body">
+              a website builder that lets vacation-rental hosts take direct
+              bookings and keep 100% of every reservation. multi-tenant saas —
+              templates, two-way ota calendar sync, direct payments, custom
+              domains, 32-language auto-translation. built end to end.
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <section class="deck">
+      <h2>how we work</h2>
+      <ul>
+        <li>greenfield preferred — architecting new systems from a blank page.</li>
+        <li>also: scalability rescue, technical due diligence, advisory retainer.</li>
+        <li>nda first. calls on request.</li>
+      </ul>
+    </section>
+
+    <section class="deck">
+      <h2>contact</h2>
+      <p>
+        <a href="mailto:hello@unseen.codes" style="color:var(--ink);border-bottom:1px solid currentColor;text-decoration:none;padding-bottom:2px;">hello@unseen.codes</a>
+      </p>
+    </section>
+  </main>
+
+  <footer class="page-footer">
+    <span>unseen.codes</span>
     <a href="mailto:hello@unseen.codes">hello@unseen.codes</a>
   </footer>
 
@@ -146,9 +361,10 @@
   /* ── particle text ──────────────────────────────────────────── */
   const canvas = document.getElementById('canvas');
   const ctx    = canvas.getContext('2d');
+  const hero   = document.querySelector('.hero');
 
-  let W = canvas.width  = window.innerWidth;
-  let H = canvas.height = window.innerHeight;
+  let W = canvas.width  = hero.clientWidth;
+  let H = canvas.height = hero.clientHeight;
 
   const MOUSE  = { x: -9999, y: -9999 };
   const REPEL  = 110;
@@ -374,18 +590,21 @@
   }
 
   /* ── events ─────────────────────────────────────────────────── */
-  window.addEventListener('mousemove', e => {
-    MOUSE.x = e.clientX; MOUSE.y = e.clientY;
+  hero.addEventListener('mousemove', e => {
+    const rect = hero.getBoundingClientRect();
+    MOUSE.x = e.clientX - rect.left;
+    MOUSE.y = e.clientY - rect.top;
   });
-  window.addEventListener('mouseleave', () => {
+  hero.addEventListener('mouseleave', () => {
     MOUSE.x = MOUSE.y = -9999;
   });
   /* touch */
-  window.addEventListener('touchmove', e => {
-    MOUSE.x = e.touches[0].clientX;
-    MOUSE.y = e.touches[0].clientY;
+  hero.addEventListener('touchmove', e => {
+    const rect = hero.getBoundingClientRect();
+    MOUSE.x = e.touches[0].clientX - rect.left;
+    MOUSE.y = e.touches[0].clientY - rect.top;
   }, { passive: true });
-  window.addEventListener('touchend', () => {
+  hero.addEventListener('touchend', () => {
     MOUSE.x = MOUSE.y = -9999;
   });
 
@@ -393,8 +612,8 @@
   window.addEventListener('resize', () => {
     clearTimeout(resizeId);
     resizeId = setTimeout(() => {
-      W = canvas.width  = window.innerWidth;
-      H = canvas.height = window.innerHeight;
+      W = canvas.width  = hero.clientWidth;
+      H = canvas.height = hero.clientHeight;
       build();
     }, 150);
   });
