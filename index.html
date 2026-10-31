@@ -564,8 +564,8 @@
 
   const T_PLAY  = 0.25;              /* footage starts fading in under the dots */
   const T_SWAP  = 0.75;              /* dots hand over, still in motion */
-  const T_LEAVE = 3.8;               /* the flock escapes upward */
-  const T_END   = 5.7;               /* logo starts reassembling */
+  const T_LEAVE = 2.4;               /* the flock escapes upward */
+  const T_END   = 4.3;               /* logo starts reassembling */
 
   function build() {
     const pts = sampleText('unseen.codes');
@@ -672,7 +672,7 @@
       if (!nearText) armed = true;
       if (nearText && armed && cooldown <= 0) {
         hoverTimer += dt * 1000;
-        if (hoverTimer >= 220) burst({ x: MOUSE.x, y: MOUSE.y });
+        if (hoverTimer >= 700) burst({ x: MOUSE.x, y: MOUSE.y });
       } else hoverTimer = 0;
 
       glitchTimer -= dt * 1000;
