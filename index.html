@@ -490,16 +490,16 @@
     update(k, tBurst) {
       if (this.state === 'takeoff') {
         if (tBurst >= this.delay) {
-          /* drift to the perch, becoming a faint grey fleck */
-          this.vx += (this.bx - this.x) * 0.05 * k;
-          this.vy += (this.by - this.y) * 0.05 * k;
-          const damp = Math.pow(0.88, k);
+          /* fly toward the perch; the footage takes over mid-flight */
+          this.vx += (this.bx - this.x) * 0.09 * k;
+          this.vy += (this.by - this.y) * 0.09 * k;
+          const damp = Math.pow(0.855, k);
           this.vx *= damp;
           this.vy *= damp;
           this.x += this.vx * k;
           this.y += this.vy * k;
-          this.r += (this.rT - this.r) * 0.05 * k;
-          this.alpha += (0.42 - this.alpha) * 0.055 * k;
+          this.r += (this.rT - this.r) * 0.08 * k;
+          this.alpha += (0.5 - this.alpha) * 0.08 * k;
         } else {
           /* not startled yet: tremble in place */
           this.x += (Math.random() - .5) * 0.6 * k;
@@ -555,15 +555,17 @@
 
   let mode       = 'TEXT';           /* TEXT | BURST */
   let burstT     = 0;
-  let swapped    = false;            /* dots have become the footage */
+  let played     = false;            /* footage rolling under the flying dots */
+  let swapped    = false;            /* dots handed over to the footage */
   let leaving    = false;            /* flock is flying away */
   let cooldown   = 0;                /* seconds before the next burst may fire */
   let armed      = true;             /* pointer must leave the logo to re-arm */
   let hoverTimer = 0;
 
-  const T_SWAP  = 1.8;               /* dots reach their perches → footage takes over */
-  const T_LEAVE = 4.8;               /* the flock escapes upward */
-  const T_END   = 6.7;               /* logo starts reassembling */
+  const T_PLAY  = 0.25;              /* footage starts fading in under the dots */
+  const T_SWAP  = 0.75;              /* dots hand over, still in motion */
+  const T_LEAVE = 3.8;               /* the flock escapes upward */
+  const T_END   = 5.7;               /* logo starts reassembling */
 
   function build() {
     const pts = sampleText('unseen.codes');
@@ -588,7 +590,7 @@
 
     mode = 'BURST';
     burstT = 0;
-    swapped = leaving = false;
+    played = swapped = leaving = false;
     hoverTimer = 0;
 
     for (const p of particles) {
@@ -601,8 +603,8 @@
       }
       p.bx = best[0] + rand(-4, 4);
       p.by = best[1] + rand(-3, 3);
-      p.delay = Math.hypot(p.x - origin.x, p.y - origin.y) / 1900 + rand(0, 0.12);
-      p.rT = rand(2.2, 3.4);
+      p.delay = Math.hypot(p.x - origin.x, p.y - origin.y) / 3000 + rand(0, 0.06);
+      p.rT = rand(1.8, 2.8);
       p.color = '#73736f';   /* half-there grey, not ink */
       p.state = 'takeoff';
     }
@@ -680,10 +682,13 @@
       }
     } else {
       burstT += dt;
-      if (!swapped && burstT >= T_SWAP) {
-        swapped = true;
+      if (!played && burstT >= T_PLAY) {
+        played = true;
         birdsVid.play();
         birdsVid.classList.add('burst');
+      }
+      if (!swapped && burstT >= T_SWAP) {
+        swapped = true;
         particles.forEach(p => { p.state = 'vanish'; });
       }
       if (!leaving && burstT >= T_LEAVE) {
