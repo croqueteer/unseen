@@ -9,7 +9,12 @@
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
-    :root { --ink: #000; --paper: #fff; --muted: #bbb; --rule: #eaeaea; }
+    :root {
+      --ink: #141414;
+      --paper: #fbfaf7;
+      --muted: #b4b0a8;
+      --rule: #eae8e1;
+    }
 
     html, body {
       width: 100%;
@@ -47,6 +52,25 @@
       10%  { opacity: var(--peak, 0.04); }
       85%  { opacity: var(--peak, 0.04); }
       100% { transform: translateY(-20vh); opacity: 0; }
+    }
+
+    /* ── real footage layers (multiply: white vanishes into paper) */
+    #sky, #birds {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+      mix-blend-mode: multiply;
+      opacity: 0;
+      pointer-events: none;
+    }
+    #sky        { transition: opacity 2.5s ease; }
+    #sky.on     { opacity: 1; }
+    #birds      { transition: opacity .6s ease; will-change: transform, opacity; }
+    #birds.burst { opacity: 1; }
+    #birds.leave {
+      opacity: 0;
+      transform: translateY(-36%) scale(1.07);
+      transition: transform 1.9s cubic-bezier(.45,.05,.85,.4), opacity 1.6s ease .25s;
     }
 
     /* ── canvas ───────────────────────────────────────────────── */
@@ -106,6 +130,12 @@
     @keyframes hintPulse {
       0%, 100% { opacity: .45; }
       50%      { opacity: .9; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .ghost-line { animation: none; opacity: 0; }
+      .hero-footer, .scroll-hint { animation: none; opacity: 1; transform: none; }
+      #sky, #birds { display: none; }
     }
 
     /* ── content sections ─────────────────────────────────────── */
@@ -206,6 +236,12 @@
 
   <section class="hero">
     <div id="ghost"></div>
+    <!-- both layers from the same starling-murmuration footage:
+         https://www.pexels.com/video/murmurations-19378837/ (Pexels license).
+         sky.mp4 = temporal-median bird removal (clouds only);
+         birds.mp4 = flat-field keyed birds on white. -->
+    <video id="sky" src="sky.mp4" autoplay muted loop playsinline aria-hidden="true"></video>
+    <video id="birds" src="birds.mp4" muted loop playsinline preload="auto" aria-hidden="true"></video>
     <canvas id="canvas"></canvas>
 
     <div class="hero-footer">
@@ -337,6 +373,8 @@
 
 <script>
 (function () {
+  'use strict';
+
   /* ── ghost code background ──────────────────────────────────── */
   const snippets = [
     'const hidden = () => null;',
@@ -361,8 +399,8 @@
     'null ?? undefined',
   ];
   const ghost = document.getElementById('ghost');
-  const cols = Math.ceil(window.innerWidth / 320);
-  for (let i = 0; i < cols * 3; i++) {
+  const gcols = Math.ceil(window.innerWidth / 320);
+  for (let i = 0; i < gcols * 3; i++) {
     const el = document.createElement('div');
     el.className = 'ghost-line';
     el.textContent = snippets[i % snippets.length];
@@ -373,35 +411,50 @@
     ghost.appendChild(el);
   }
 
-  /* ── particle text ──────────────────────────────────────────── */
-  const canvas = document.getElementById('canvas');
-  const ctx    = canvas.getContext('2d');
-  const hero   = document.querySelector('.hero');
+  /* ── setup ──────────────────────────────────────────────────── */
+  const canvas   = document.getElementById('canvas');
+  const ctx      = canvas.getContext('2d');
+  const hero     = document.querySelector('.hero');
+  const skyVid   = document.getElementById('sky');
+  const birdsVid = document.getElementById('birds');
 
-  let W = canvas.width  = hero.clientWidth;
-  let H = canvas.height = hero.clientHeight;
+  const TAU     = Math.PI * 2;
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  const MOUSE  = { x: -9999, y: -9999 };
-  const REPEL  = 110;
-  const GAP    = 5;          // sample every N px
-  const SPRING = 0.048;
-  const DAMP   = 0.82;
-  const DRIFT  = 0.18;       // random wobble magnitude
+  let W = 0, H = 0;
 
-  let particles  = [];
-  let glitchTimer = 0;
-  let glitching   = false;
-  let crowMode    = false;
-  let hoverTimer  = 0;
+  const INK = '#141414';
 
-  /* sample text into pixel coords */
+  /* where the birds sit in birds.mp4's first frame (video-pixel coords),
+     sampled offline - the exploding logo dots fly onto these spots so the
+     cut to the footage reads as the dots becoming the birds */
+  const VID_W = 1440, VID_H = 746;
+  const BIRD_PTS = [162,2,582,2,587,2,602,2,907,2,1067,2,467,7,597,7,622,7,957,7,967,7,1147,7,1152,7,462,12,467,12,602,12,607,12,627,12,632,12,942,12,1027,12,1147,12,1152,12,1157,12,172,17,182,17,462,17,622,17,627,17,632,17,667,17,1027,17,1097,17,1152,17,1157,17,177,22,662,22,1102,22,1152,22,1332,22,357,27,667,27,742,27,1327,27,47,32,307,32,337,32,342,32,347,32,352,32,362,32,607,32,742,32,1317,32,1327,32,307,37,347,37,367,37,597,37,602,37,632,37,1002,37,1137,37,1362,37,307,42,1127,42,1132,42,1362,42,297,47,337,47,767,47,1362,47,292,52,297,52,757,52,767,52,1032,52,1362,52,292,57,337,57,342,57,467,57,762,57,877,57,1362,57,227,62,237,62,307,62,312,62,342,62,387,62,452,62,872,62,877,62,882,62,1372,62,177,67,232,67,342,67,377,67,1357,67,32,72,37,72,172,72,177,72,347,72,352,72,377,72,387,72,392,72,692,72,697,72,702,72,1107,72,1262,72,42,77,347,77,352,77,382,77,392,77,397,77,1102,77,1107,77,32,82,347,82,352,82,397,82,402,82,837,82,1107,82,347,87,962,87,1102,87,1267,87,1387,87,152,92,822,92,827,92,952,92,962,92,1277,92,1382,92,337,97,827,97,1272,97,332,102,512,102,817,102,1272,102,297,107,942,107,1027,107,1032,107,1252,107,1302,107,1307,107,302,112,1032,112,1252,112,1307,112,302,117,942,117,1247,117,1367,117,297,122,302,122,512,122,667,122,1362,122,232,127,237,127,417,127,607,127,612,127,617,127,1372,127,232,132,237,132,557,132,757,132,762,132,1357,132,1367,132,1372,132,757,137,822,137,832,137,1227,137,1232,137,1237,137,1372,137,557,142,562,142,667,142,827,142,832,142,1232,142,1372,142,127,147,552,147,562,147,672,147,827,147,1217,147,1287,147,142,152,212,152,217,152,302,152,307,152,722,152,822,152,1212,152,1217,152,1287,152,212,157,307,157,312,157,322,157,432,157,627,157,637,157,1217,157,262,162,267,162,312,162,467,162,472,162,477,162,722,162,1077,162,122,167,302,167,427,167,432,167,462,167,472,167,677,167,682,167,1072,167,1077,167,1242,167,1247,167,122,172,162,172,167,172,177,172,372,172,432,172,637,172,642,172,767,172,872,172,877,172,1072,172,1077,172,1237,172,1242,172,1412,172,112,177,117,177,367,177,632,177,637,177,677,177,767,177,792,177,972,177,122,182,187,182,192,182,367,182,377,182,1397,182,1417,182,187,187,542,187,607,187,722,187,732,187,902,187,1407,187,1412,187,372,192,547,192,597,192,607,192,627,192,632,192,722,192,1382,192,1392,192,517,197,607,197,872,197,877,197,882,197,892,197,902,197,1007,197,1397,197,517,202,522,202,942,202,1007,202,1012,202,1152,202,57,207,517,207,1162,207,67,212,912,212,1157,212,1437,212,57,217,67,217,102,217,537,217,802,217,882,217,917,217,972,217,1037,217,1042,217,1047,217,1147,217,1417,217,1422,217,57,222,92,222,542,222,627,222,757,222,802,222,882,222,887,222,972,222,1042,222,402,227,507,227,512,227,627,227,772,227,877,227,902,227,912,227,972,227,1087,227,1232,227,1237,227,72,232,402,232,767,232,1077,232,1082,232,1087,232,1247,232,397,237,407,237,797,237,802,237,812,237,1072,237,1077,237,1082,237,1242,237,592,242,787,242,792,242,797,242,832,242,862,242,1077,242,1247,242,167,247,597,247,867,247,1262,247,1332,247,167,252,412,252,422,252,427,252,462,252,672,252,987,252,1252,252,1327,252,412,257,417,257,422,257,457,257,507,257,517,257,582,257,587,257,592,257,602,257,607,257,622,257,862,257,867,257,952,257,1037,257,1337,257,162,262,577,262,632,262,667,262,677,262,737,262,857,262,862,262,987,262,992,262,1032,262,1037,262,162,267,167,267,337,267,582,267,637,267,647,267,737,267,862,267,1237,267,1242,267,372,272,637,272,1237,272,1242,272,1297,272,332,277,637,277,832,277,862,277,1292,277,372,282,377,282,427,282,432,282,777,282,827,282,832,282,857,282,862,282,367,287,432,287,437,287,442,287,777,287,782,287,832,287,857,287,1002,287,1007,287,1112,287,1157,287,1382,287,1387,287,422,292,427,292,432,292,437,292,777,292,822,292,832,292,837,292,1007,292,1012,292,1182,292,432,297,567,297,817,297,837,297,1357,297,1407,297,527,302,532,302,567,302,832,302,837,302,1092,302,1182,302,1187,302,1207,302,1357,302,167,307,267,307,272,307,282,307,527,307,692,307,702,307,727,307,782,307,1182,307,1197,307,1357,307,202,312,267,312,272,312,277,312,697,312,1087,312,1092,312,1097,312,207,317,502,317,517,317,687,317,722,317,932,317,987,317,202,322,292,322,297,322,372,322,392,322,397,322,497,322,502,322,507,322,512,322,727,322,932,322,1117,322,1122,322,292,327,372,327,387,327,392,327,497,327,502,327,582,327,742,327,1042,327,1402,327,1407,327,177,332,367,332,377,332,392,332,397,332,577,332,587,332,717,332,722,332,742,332,937,332,1117,332,1402,332,177,337,202,337,587,337,702,337,937,337,942,337,1017,337,167,342,197,342,702,342,712,342,157,347,177,347,182,347,702,347,707,347,912,347,1332,347,1337,347,157,352,317,352,467,352,887,352,1157,352,1332,352,262,357,267,357,312,357,322,357,377,357,382,357,462,357,1357,357,1362,357,257,362,312,362,317,362,382,362,877,362,1357,362,642,367,647,367,667,367,772,367,877,367,887,367,1007,367,1012,367,1032,367,1077,367,362,372,367,372,642,372,662,372,667,372,772,372,877,372,1007,372,1012,372,1027,372,1067,372,1072,372,1077,372,372,377,627,377,667,377,772,377,1007,377,1012,377,1072,377,1392,377,112,382,117,382,122,382,622,382,1012,382,1112,382,1262,382,1267,382,1392,382,107,387,112,387,117,387,562,387,567,387,572,387,622,387,782,387,1107,387,1137,387,1147,387,1387,387,112,392,242,392,537,392,542,392,567,392,667,392,777,392,787,392,1352,392,1407,392,47,397,52,397,57,397,242,397,542,397,672,397,772,397,777,397,42,402,47,402,322,402,392,402,407,402,667,402,672,402,777,402,937,402,962,402,967,402,1172,402,1402,402,407,407,962,407,987,407,1222,407,1402,407,327,412,342,412,402,412,527,412,577,412,932,412,972,412,977,412,1217,412,182,417,342,417,347,417,382,417,522,417,527,417,577,417,782,417,932,417,1217,417,177,422,182,422,382,422,387,422,882,422,1337,422,387,427,392,427,527,427,767,427,872,427,877,427,1337,427,397,432,547,432,552,432,762,432,1332,432,397,437,402,437,552,437,797,437,1227,437,1332,437,217,442,222,442,397,442,562,442,797,442,807,442,902,442,1222,442,1437,442,312,447,697,447,807,447,897,447,1212,447,1217,447,1407,447,317,452,492,452,692,452,1217,452,1222,452,217,457,312,457,417,457,492,457,587,457,687,457,692,457,1167,457,1212,457,1217,457,1292,457,1297,457,412,462,422,462,487,462,592,462,657,462,672,462,677,462,692,462,697,462,717,462,812,462,1317,462,1322,462,582,467,592,467,652,467,667,467,702,467,722,467,962,467,972,467,977,467,1292,467,437,472,622,472,627,472,722,472,977,472,437,477,582,477,677,477,182,482,437,482,572,482,577,482,677,482,807,482,1207,482,1212,482,1217,482,107,487,187,487,302,487,392,487,397,487,402,487,542,487,807,487,812,487,852,487,857,487,972,487,1122,487,1127,487,1207,487,1212,487,1362,487,107,492,182,492,297,492,392,492,397,492,482,492,497,492,637,492,642,492,647,492,857,492,972,492,1002,492,1157,492,1162,492,1212,492,217,497,222,497,297,497,302,497,447,497,457,497,477,497,537,497,647,497,747,497,862,497,987,497,997,497,1062,497,1067,497,1157,497,217,502,227,502,297,502,547,502,552,502,742,502,902,502,987,502,1002,502,1057,502,1062,502,1322,502,1372,502,322,507,552,507,682,507,747,507,897,507,1297,507,1317,507,1362,507,227,512,232,512,317,512,322,512,497,512,502,512,677,512,682,512,752,512,767,512,1317,512,222,517,322,517,432,517,437,517,567,517,677,517,687,517,717,517,722,517,747,517,132,522,317,522,347,522,432,522,682,522,687,522,692,522,722,522,992,522,1212,522,1217,522,1317,522,87,527,137,527,407,527,417,527,682,527,692,527,712,527,717,527,77,532,137,532,437,532,937,532,1397,532,437,537,672,537,927,537,1147,537,1327,537,1332,537,197,542,367,542,397,542,402,542,437,542,592,542,612,542,672,542,807,542,812,542,1012,542,1152,542,1157,542,182,547,197,547,202,547,267,547,397,547,432,547,437,547,592,547,612,547,812,547,1002,547,1007,547,1017,547,1172,547,267,552,367,552,397,552,402,552,412,552,437,552,467,552,542,552,592,552,597,552,607,552,767,552,777,552,1142,552,1167,552,272,557,317,557,397,557,402,557,417,557,482,557,492,557,502,557,537,557,542,557,547,557,587,557,592,557,707,557,712,557,757,557,762,557,767,557,782,557,982,557,1012,557,1017,557,32,562,37,562,242,562,267,562,272,562,287,562,362,562,367,562,407,562,432,562,467,562,472,562,497,562,507,562,587,562,592,562,707,562,792,562,892,562,972,562,977,562,1147,562,27,567,32,567,237,567,247,567,272,567,362,567,427,567,432,567,627,567,892,567,977,567,982,567,1142,567,1272,567,37,572,192,572,232,572,242,572,282,572,322,572,362,572,522,572,627,572,647,572,847,572,1032,572,1037,572,1057,572,1062,572,1292,572,1297,572,187,577,192,577,227,577,232,577,367,577,377,577,497,577,847,577,957,577,1012,577,1017,577,1027,577,1057,577,1267,577,1337,577,1342,577,187,582,192,582,227,582,232,582,237,582,287,582,307,582,497,582,537,582,602,582,607,582,777,582,847,582,947,582,1017,582,1102,582,1262,582,62,587,67,587,187,587,227,587,232,587,237,587,312,587,1007,587,1012,587,62,592,67,592,202,592,307,592,597,592,602,592,607,592,642,592,1317,592,1322,592,102,597,197,597,307,597,412,597,422,597,447,597,457,597,482,597,847,597,1002,597,1297,597,102,602,202,602,347,602,352,602,457,602,507,602,627,602,1042,602,1287,602,102,607,347,607,627,607,757,607,1112,607,1117,607,1292,607,457,612,462,612,627,612,837,612,1117,612,352,617,457,617,472,617,482,617,812,617,107,622,397,622,407,622,472,622,477,622,482,622,762,622,782,622,912,622,1127,622,1152,622,107,627,402,627,467,627,592,627,772,627,782,627,992,627,1122,627,1127,627,477,632,597,632,622,632,727,632,732,632,777,632,787,632,1052,632,1057,632,392,637,397,637,507,637,512,637,587,637,592,637,727,637,862,637,387,642,512,642,692,642,862,642,872,642,1237,642,887,647,992,647,997,647,497,652,882,652,892,652,897,652,902,652,152,657,307,657,362,657,492,657,617,657,722,657,812,657,817,657,882,657,972,657,307,662,312,662,492,662,617,662,697,662,762,662,977,662,1272,662,247,667,252,667,312,667,897,667,977,667,357,672,407,672,622,672,927,672,1112,672,412,677,477,677,482,677,487,677,597,677,602,677,642,677,747,677,752,677,887,677,897,677,397,682,402,682,407,682,512,682,742,682,747,682,752,682,757,682,772,682,837,682,842,682,397,687,402,687,452,687,457,687,512,687,687,687,742,687,457,692,487,692,582,692,667,692,672,692,692,692,737,692,392,697,397,697,457,697,477,697,667,697,682,697,687,697,727,697,452,702,477,702,482,702,592,702,427,707,432,707,592,707,597,707,602,707,422,712,587,712,592,712,2,717,242,717,377,717,457,717,462,717,587,717,592,717,722,717,877,717,2,722,237,722,377,722,427,722,697,722,782,722,867,722,872,722,922,722,2,727,372,727,492,727,497,727,712,727,777,727,862,727,492,732,692,732,707,732,612,737,697,737,707,737,712,737,717,737,802,737,807,737,897,737,427,742,702,742,707,742,712,742,762,742];
+
+  const MOUSE = { x: -9999, y: -9999 };
+  const REPEL = 110;
+  const GAP   = 4;
+
+  /* ── helpers ────────────────────────────────────────────────── */
+  const rand    = (a, b) => a + Math.random() * (b - a);
+  const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
+
+  function particleColor() {
+    const r = Math.random();
+    if (r < 0.05)  return '#3d7a71';   /* teal sheen   */
+    if (r < 0.085) return '#a8653a';   /* amber        */
+    if (r < 0.13)  return '#2b3a55';   /* blue ink     */
+    return INK;
+  }
+
+  /* ── text sampling ──────────────────────────────────────────── */
   function sampleText(text) {
-    const tmp   = document.createElement('canvas');
-    tmp.width   = W;
-    tmp.height  = H;
-    const tc    = tmp.getContext('2d');
-    const size  = Math.min(W / 8.2, 110, H / 4);
-    tc.font     = `200 ${size}px 'Courier New', monospace`;
+    const tmp  = document.createElement('canvas');
+    tmp.width  = W;
+    tmp.height = H;
+    const tc   = tmp.getContext('2d');
+    const size = Math.min(W / 8.2, 110, H / 4);
+    tc.font    = `600 ${size}px 'Courier New', monospace`;
     tc.textAlign    = 'left';
     tc.textBaseline = 'middle';
     tc.fillStyle    = '#000';
@@ -415,139 +468,175 @@
     return points;
   }
 
+  /* ── particles (the logo) ───────────────────────────────────── */
   class Particle {
     constructor(tx, ty) {
       this.tx = tx; this.ty = ty;
-      /* start scattered */
-      this.x  = Math.random() * W;
-      this.y  = Math.random() * H;
-      this.vx = (Math.random() - .5) * 4;
-      this.vy = (Math.random() - .5) * 4;
-      this.r  = Math.random() * 1.2 + 0.4;
+      this.x = rand(0, W);
+      this.y = rand(0, H);
+      this.vx = rand(-2, 2);
+      this.vy = rand(-2, 2);
+      this.r  = rand(0.7, 1.7);
       this.alpha = 0;
-      this.targetAlpha = Math.random() * 0.35 + 0.65;
-      /* glitch offset */
-      this.ox = 0;
-      /* crow */
-      this.isCrow     = false;
-      this.cvx        = 0;
-      this.cvy        = 0;
-      this.flapPhase  = Math.random() * Math.PI * 2;
-      this.flapSpeed  = 4 + Math.random() * 5;
-      this.crowScale  = 0;
-      this.offscreen  = false;
-      this.tiltAngle  = (Math.random() - .5) * 0.5;
+      this.targetAlpha = rand(0.55, 0.95);
+      this.color = particleColor();
+      this.ox = 0;            /* glitch offset */
+      this.state = 'text';    /* text | takeoff | vanish */
+      this.bx = 0; this.by = 0;   /* assigned perch: a frame-0 bird position */
+      this.delay = 0;             /* startle ripple: takeoff delay in seconds */
+      this.rT = 0;                /* radius to grow to while becoming a bird */
     }
 
-    enterCrowMode() {
-      this.isCrow    = true;
-      const angle    = -Math.PI / 2 + (Math.random() - .5) * Math.PI * 1.1;
-      const speed    = 0.8 + Math.random() * 1.6;
-      this.cvx       = Math.cos(angle) * speed;
-      this.cvy       = Math.sin(angle) * speed;
-      this.flapPhase = Math.random() * Math.PI * 2;
-      this.crowScale = 0;
-    }
-
-    update(t) {
-      if (this.isCrow) {
-        this.crowScale  = Math.min(1, this.crowScale + 0.05);
-        this.cvy       -= 0.015;
-        this.x         += this.cvx;
-        this.y         += this.cvy;
-        this.flapPhase += this.flapSpeed * 0.016;
-        if (this.x < -80 || this.x > W + 80 || this.y < -H * 0.5) this.offscreen = true;
+    update(k, tBurst) {
+      if (this.state === 'takeoff') {
+        if (tBurst >= this.delay) {
+          /* fly toward the perch; the footage takes over mid-flight */
+          this.vx += (this.bx - this.x) * 0.09 * k;
+          this.vy += (this.by - this.y) * 0.09 * k;
+          const damp = Math.pow(0.855, k);
+          this.vx *= damp;
+          this.vy *= damp;
+          this.x += this.vx * k;
+          this.y += this.vy * k;
+          this.r += (this.rT - this.r) * 0.08 * k;
+          this.alpha += (0.5 - this.alpha) * 0.08 * k;
+        } else {
+          /* not startled yet: tremble in place */
+          this.x += (Math.random() - .5) * 0.6 * k;
+          this.y += (Math.random() - .5) * 0.6 * k;
+        }
         return;
       }
 
-      /* spring toward target */
-      const dx = (this.tx + this.ox) - this.x;
-      const dy = this.ty - this.y;
-      this.vx += dx * SPRING + (Math.random() - .5) * DRIFT;
-      this.vy += dy * SPRING + (Math.random() - .5) * DRIFT;
-
-      /* mouse repulsion */
-      const mdx  = this.x - MOUSE.x;
-      const mdy  = this.y - MOUSE.y;
-      const dist2 = mdx * mdx + mdy * mdy;
-      if (dist2 < REPEL * REPEL) {
-        const d = Math.sqrt(dist2) || 1;
-        const f = ((REPEL - d) / REPEL) * 6;
-        this.vx += (mdx / d) * f;
-        this.vy += (mdy / d) * f;
+      if (this.state === 'vanish') {
+        this.x += this.vx * k;
+        this.y += this.vy * k;
+        this.vx *= Math.pow(0.9, k);
+        this.vy *= Math.pow(0.9, k);
+        this.alpha += (0 - this.alpha) * 0.12 * k;
+        return;
       }
 
-      this.vx *= DAMP;
-      this.vy *= DAMP;
-      this.x  += this.vx;
-      this.y  += this.vy;
+      this.vx += ((this.tx + this.ox - this.x) * 0.048 + (Math.random() - .5) * 0.18) * k;
+      this.vy += ((this.ty - this.y) * 0.048 + (Math.random() - .5) * 0.18) * k;
 
-      /* fade in */
-      this.alpha += (this.targetAlpha - this.alpha) * 0.06;
+      const mdx = this.x - MOUSE.x;
+      const mdy = this.y - MOUSE.y;
+      const d2  = mdx * mdx + mdy * mdy;
+      if (d2 < REPEL * REPEL) {
+        const d = Math.sqrt(d2) || 1;
+        const f = ((REPEL - d) / REPEL) * 6;
+        this.vx += (mdx / d) * f * k;
+        this.vy += (mdy / d) * f * k;
+      }
+
+      const damp = Math.pow(0.82, k);
+      this.vx *= damp;
+      this.vy *= damp;
+      this.x  += this.vx * k;
+      this.y  += this.vy * k;
+
+      this.alpha += (this.targetAlpha - this.alpha) * 0.06 * k;
     }
 
     draw() {
-      if (this.isCrow) {
-        const s    = this.crowScale;
-        const w    = 13 * s;   // half-wingspan
-        const flap = Math.sin(this.flapPhase) * w * 0.42;
-        ctx.save();
-        ctx.translate(this.x, this.y);
-        ctx.rotate(this.tiltAngle);
-        ctx.globalAlpha = Math.min(1, this.alpha);
-        ctx.fillStyle   = '#000';
-        /* left wing — narrow strip, not a membrane */
-        ctx.beginPath();
-        ctx.moveTo(-w * 0.13, w * 0.04);
-        ctx.lineTo(-w,        -flap);
-        ctx.lineTo(-w * 0.82, -flap + w * 0.14);
-        ctx.lineTo(-w * 0.38,  w * 0.1);
-        ctx.closePath();
-        ctx.fill();
-        /* right wing — slightly smaller for 3/4 perspective */
-        ctx.beginPath();
-        ctx.moveTo( w * 0.13, w * 0.04);
-        ctx.lineTo( w * 0.88, -flap * 0.82);
-        ctx.lineTo( w * 0.72, -flap * 0.82 + w * 0.14);
-        ctx.lineTo( w * 0.34,  w * 0.1);
-        ctx.closePath();
-        ctx.fill();
-        /* body */
-        ctx.beginPath();
-        ctx.ellipse(0, w * 0.06, w * 0.13, w * 0.24, 0, 0, Math.PI * 2);
-        ctx.fill();
-        /* head */
-        ctx.beginPath();
-        ctx.arc(0, -w * 0.2, w * 0.1, 0, Math.PI * 2);
-        ctx.fill();
-        /* tail */
-        ctx.beginPath();
-        ctx.moveTo(-w * 0.12, w * 0.22);
-        ctx.lineTo(-w * 0.2,  w * 0.38);
-        ctx.lineTo( 0,         w * 0.32);
-        ctx.lineTo( w * 0.2,  w * 0.38);
-        ctx.lineTo( w * 0.12, w * 0.22);
-        ctx.closePath();
-        ctx.fill();
-        ctx.restore();
-        return;
-      }
-      ctx.globalAlpha = Math.max(0, Math.min(1, this.alpha));
+      ctx.globalAlpha = clamp01(this.alpha);
+      ctx.fillStyle = this.color;
       ctx.beginPath();
-      ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
+      ctx.arc(this.x, this.y, this.r, 0, TAU);
       ctx.fill();
     }
   }
+
+  /* ── state ──────────────────────────────────────────────────── */
+  let particles   = [];
+  let glitchTimer = 0;
+  let glitching   = false;
+
+  let mode       = 'TEXT';           /* TEXT | BURST */
+  let burstT     = 0;
+  let played     = false;            /* footage rolling under the flying dots */
+  let swapped    = false;            /* dots handed over to the footage */
+  let leaving    = false;            /* flock is flying away */
+  let cooldown   = 0;                /* seconds before the next burst may fire */
+  let armed      = true;             /* pointer must leave the logo to re-arm */
+  let hoverTimer = 0;
+
+  const T_PLAY  = 0.25;              /* footage starts fading in under the dots */
+  const T_SWAP  = 0.75;              /* dots hand over, still in motion */
+  const T_LEAVE = 2.4;               /* the flock escapes upward */
+  const T_END   = 4.3;               /* logo starts reassembling */
 
   function build() {
     const pts = sampleText('unseen.codes');
     particles = pts.map(p => new Particle(p.x, p.y));
   }
 
-  /* ── glitch effect ──────────────────────────────────────────── */
+  /* ── the poke: the dots are birds, and they escape ──────────── */
+  function burst(origin) {
+    if (mode !== 'TEXT' || cooldown > 0 || reduced) return;
+
+    /* frame-0 bird positions, mapped through the video's cover fit */
+    const vs = Math.max(W / VID_W, H / VID_H);
+    const ox = (W - VID_W * vs) / 2;
+    const oy = (H - VID_H * vs) / 2;
+    const perches = [];
+    for (let i = 0; i < BIRD_PTS.length; i += 2) {
+      const x = BIRD_PTS[i] * vs + ox;
+      const y = BIRD_PTS[i + 1] * vs + oy;
+      if (x > -8 && x < W + 8 && y > -8 && y < H + 8) perches.push([x, y]);
+    }
+    if (!perches.length) return;
+
+    mode = 'BURST';
+    burstT = 0;
+    played = swapped = leaving = false;
+    hoverTimer = 0;
+
+    for (const p of particles) {
+      /* nearest of a few random perches: local coherence, no long criss-cross */
+      let best = perches[0], bd = Infinity;
+      for (let t = 0; t < 3; t++) {
+        const c = perches[(Math.random() * perches.length) | 0];
+        const d = (c[0] - p.x) ** 2 + (c[1] - p.y) ** 2;
+        if (d < bd) { bd = d; best = c; }
+      }
+      p.bx = best[0] + rand(-4, 4);
+      p.by = best[1] + rand(-3, 3);
+      p.delay = Math.hypot(p.x - origin.x, p.y - origin.y) / 3000 + rand(0, 0.06);
+      p.rT = rand(1.8, 2.8);
+      p.color = '#73736f';   /* half-there grey, not ink */
+      p.state = 'takeoff';
+    }
+
+    /* footage armed at its first frame, where the perches were sampled */
+    birdsVid.pause();
+    try { birdsVid.currentTime = 0; } catch (e) { /* not loaded yet: close enough */ }
+  }
+
+  function endBurst() {
+    birdsVid.classList.remove('burst');
+    birdsVid.classList.remove('leave');
+    birdsVid.pause();
+    build();            /* dots return and reassemble */
+    mode = 'TEXT';
+    cooldown = 2;
+    armed = false;      /* leave the logo before it can burst again */
+  }
+
+  function resize() {
+    W = hero.clientWidth;
+    H = hero.clientHeight;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width  = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  /* ── glitch ─────────────────────────────────────────────────── */
   function triggerGlitch() {
     glitching = true;
-    const shift = (Math.random() - .5) * 28;
+    const shift  = (Math.random() - .5) * 28;
     const slice1 = H * (.3 + Math.random() * .2);
     const slice2 = slice1 + 20 + Math.random() * 60;
     particles.forEach(p => {
@@ -562,45 +651,51 @@
   /* ── render loop ────────────────────────────────────────────── */
   let lastTs = 0;
   function loop(ts) {
-    const dt = lastTs ? Math.min(ts - lastTs, 50) : 16;
-    lastTs = ts;
     requestAnimationFrame(loop);
+    const dt = Math.min(lastTs ? (ts - lastTs) / 1000 : 0.016, 0.05);
+    lastTs = ts;
+    const k = Math.min(dt * 60, 2);   /* frame-normalised factor for particle physics */
+
     ctx.clearRect(0, 0, W, H);
-    ctx.fillStyle = '#000';
 
-    particles.forEach(p => { p.update(ts); p.draw(); });
-
+    particles.forEach(p => { p.update(k, burstT); p.draw(); });
     ctx.globalAlpha = 1;
 
-    if (crowMode) {
-      particles = particles.filter(p => !p.offscreen);
-      if (particles.length === 0) {
-        crowMode = false;
-        hoverTimer = 0;
-        build();
-      }
-    } else {
-      /* hover-to-scatter: check if mouse is near any particle */
+    if (mode === 'TEXT') {
+      cooldown = Math.max(0, cooldown - dt);
+
+      /* poke the logo → the dots take off */
       const nearText = MOUSE.x !== -9999 && particles.some(p => {
         const dx = p.tx - MOUSE.x, dy = p.ty - MOUSE.y;
         return dx * dx + dy * dy < 55 * 55;
       });
-      if (nearText) {
-        hoverTimer += dt;
-        if (hoverTimer >= 600) {
-          crowMode = true;
-          particles.forEach(p => p.enterCrowMode());
-        }
-      } else {
-        hoverTimer = 0;
-      }
+      if (!nearText) armed = true;
+      if (nearText && armed && cooldown <= 0) {
+        hoverTimer += dt * 1000;
+        if (hoverTimer >= 700) burst({ x: MOUSE.x, y: MOUSE.y });
+      } else hoverTimer = 0;
 
-      /* schedule random glitch */
-      glitchTimer -= 16;
+      glitchTimer -= dt * 1000;
       if (glitchTimer <= 0 && !glitching) {
         glitchTimer = 3000 + Math.random() * 7000;
         triggerGlitch();
       }
+    } else {
+      burstT += dt;
+      if (!played && burstT >= T_PLAY) {
+        played = true;
+        birdsVid.play();
+        birdsVid.classList.add('burst');
+      }
+      if (!swapped && burstT >= T_SWAP) {
+        swapped = true;
+        particles.forEach(p => { p.state = 'vanish'; });
+      }
+      if (!leaving && burstT >= T_LEAVE) {
+        leaving = true;
+        birdsVid.classList.add('leave');
+      }
+      if (burstT >= T_END) endBurst();
     }
   }
 
@@ -613,7 +708,6 @@
   hero.addEventListener('mouseleave', () => {
     MOUSE.x = MOUSE.y = -9999;
   });
-  /* touch */
   hero.addEventListener('touchmove', e => {
     const rect = hero.getBoundingClientRect();
     MOUSE.x = e.touches[0].clientX - rect.left;
@@ -622,19 +716,58 @@
   hero.addEventListener('touchend', () => {
     MOUSE.x = MOUSE.y = -9999;
   });
+  /* tap/click on the logo works too */
+  canvas.addEventListener('click', e => {
+    const rect = hero.getBoundingClientRect();
+    const x = e.clientX - rect.left, y = e.clientY - rect.top;
+    const near = particles.some(p => {
+      const dx = p.tx - x, dy = p.ty - y;
+      return dx * dx + dy * dy < 70 * 70;
+    });
+    if (near) burst({ x, y });
+  });
 
   let resizeId;
   window.addEventListener('resize', () => {
     clearTimeout(resizeId);
     resizeId = setTimeout(() => {
-      W = canvas.width  = hero.clientWidth;
-      H = canvas.height = hero.clientHeight;
+      resize();
+      birdsVid.classList.remove('burst');
+      birdsVid.pause();
+      mode = 'TEXT';
+      cooldown = 0;
       build();
+      if (reduced) drawStatic();
     }, 150);
   });
 
+  /* ── reduced motion: a still logo, no theatrics ─────────────── */
+  function drawStatic() {
+    ctx.clearRect(0, 0, W, H);
+    for (const p of particles) {
+      ctx.globalAlpha = p.targetAlpha;
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.tx, p.ty, p.r, 0, TAU);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /* fade the sky in once it actually plays */
+  if (reduced) {
+    skyVid.removeAttribute('autoplay');
+    skyVid.pause();
+  } else {
+    const showSky = () => { if (!skyVid.paused) skyVid.classList.add('on'); };
+    skyVid.addEventListener('playing', showSky, { once: true });
+    if (!skyVid.paused && skyVid.readyState >= 2) showSky();
+  }
+
+  resize();
   build();
-  requestAnimationFrame(loop);
+  if (reduced) drawStatic();
+  else requestAnimationFrame(loop);
 })();
 </script>
 </body>
