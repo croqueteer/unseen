@@ -65,7 +65,7 @@
     }
     #sky        { transition: opacity 2.5s ease; }
     #sky.on     { opacity: 1; }
-    #birds      { transition: opacity .22s ease; will-change: transform, opacity; }
+    #birds      { transition: opacity .6s ease; will-change: transform, opacity; }
     #birds.burst { opacity: 1; }
     #birds.leave {
       opacity: 0;
@@ -490,16 +490,16 @@
     update(k, tBurst) {
       if (this.state === 'takeoff') {
         if (tBurst >= this.delay) {
-          /* fly to the perch, growing into a bird */
-          this.vx += (this.bx - this.x) * 0.085 * k;
-          this.vy += (this.by - this.y) * 0.085 * k;
-          const damp = Math.pow(0.84, k);
+          /* drift to the perch, becoming a faint grey fleck */
+          this.vx += (this.bx - this.x) * 0.05 * k;
+          this.vy += (this.by - this.y) * 0.05 * k;
+          const damp = Math.pow(0.88, k);
           this.vx *= damp;
           this.vy *= damp;
           this.x += this.vx * k;
           this.y += this.vy * k;
-          this.r += (this.rT - this.r) * 0.09 * k;
-          this.alpha += (0.95 - this.alpha) * 0.1 * k;
+          this.r += (this.rT - this.r) * 0.05 * k;
+          this.alpha += (0.42 - this.alpha) * 0.055 * k;
         } else {
           /* not startled yet: tremble in place */
           this.x += (Math.random() - .5) * 0.6 * k;
@@ -513,7 +513,7 @@
         this.y += this.vy * k;
         this.vx *= Math.pow(0.9, k);
         this.vy *= Math.pow(0.9, k);
-        this.alpha += (0 - this.alpha) * 0.25 * k;
+        this.alpha += (0 - this.alpha) * 0.12 * k;
         return;
       }
 
@@ -561,9 +561,9 @@
   let armed      = true;             /* pointer must leave the logo to re-arm */
   let hoverTimer = 0;
 
-  const T_SWAP  = 1.05;              /* dots reach their perches → footage takes over */
-  const T_LEAVE = 4.0;               /* the flock escapes upward */
-  const T_END   = 5.9;               /* logo starts reassembling */
+  const T_SWAP  = 1.8;               /* dots reach their perches → footage takes over */
+  const T_LEAVE = 4.8;               /* the flock escapes upward */
+  const T_END   = 6.7;               /* logo starts reassembling */
 
   function build() {
     const pts = sampleText('unseen.codes');
@@ -601,9 +601,9 @@
       }
       p.bx = best[0] + rand(-4, 4);
       p.by = best[1] + rand(-3, 3);
-      p.delay = Math.hypot(p.x - origin.x, p.y - origin.y) / 2500 + rand(0, 0.08);
-      p.rT = rand(2.6, 4.0);
-      p.color = INK;
+      p.delay = Math.hypot(p.x - origin.x, p.y - origin.y) / 1900 + rand(0, 0.12);
+      p.rT = rand(2.2, 3.4);
+      p.color = '#73736f';   /* half-there grey, not ink */
       p.state = 'takeoff';
     }
 
