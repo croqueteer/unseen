@@ -420,15 +420,15 @@
   const GAP   = 4;
 
   /* sequence timing (seconds) */
-  const T_COALESCE = 1.15;
-  const T_FLOCK    = 4.2;
-  const T_EXIT     = 1.4;
-  const T_CIRCLE   = 2.7;
-  const T_DIVE     = 1.8;
-  const T_HOLD     = 0.68;
+  const T_COALESCE = 0.7;
+  const T_FLOCK    = 1.9;
+  const T_EXIT     = 0.9;
+  const T_CIRCLE   = 1.7;
+  const T_DIVE     = 1.15;
+  const T_HOLD     = 0.5;
 
   const qs = new URLSearchParams(location.search);
-  const AUTO_AT = qs.has('demo') ? 0.3 : 14;   /* ?demo for headless testing */
+  const AUTO_AT = qs.has('demo') ? 0.3 : 10;   /* ?demo for headless testing */
 
   /* ── helpers ────────────────────────────────────────────────── */
   const rand    = (a, b) => a + Math.random() * (b - a);
@@ -546,7 +546,7 @@
       this.vy = Math.sin(a) * 40;
       this.depth = rand(0.55, 1.3);          /* fake distance: scale + speed */
       this.size  = 9.5 * this.depth;         /* body unit in px */
-      this.speedMax = rand(210, 260) * (0.7 + 0.3 * this.depth);
+      this.speedMax = rand(300, 380) * (0.7 + 0.3 * this.depth);
       this.color = BIRD_COLORS[(Math.random() * BIRD_COLORS.length) | 0];
       this.flap  = rand(0, TAU);
       this.amp   = 1;                        /* flap amplitude; eases to 0 in a glide */
@@ -623,8 +623,8 @@
         const n = Math.hypot(this.exitDir.x, this.exitDir.y);
         this.exitDir.x /= n; this.exitDir.y /= n;
       }
-      this.vx += this.exitDir.x * 900 * dt;
-      this.vy += this.exitDir.y * 900 * dt;
+      this.vx += this.exitDir.x * 1500 * dt;
+      this.vy += this.exitDir.y * 1500 * dt;
       this.x += this.vx * dt;
       this.y += this.vy * dt;
       if (this.x < -120 || this.x > W + 120 || this.y < -120 || this.y > H + 120)
@@ -640,8 +640,8 @@
       const bankTarget = Math.max(-0.9, Math.min(0.9, dh * 7));
       this.bank += (bankTarget - this.bank) * Math.min(1, dt * 5);
 
-      if (allowGlide && this.glide <= 0 && Math.random() < dt * 0.22)
-        this.glide = rand(0.6, 1.6);
+      if (allowGlide && this.glide <= 0 && Math.random() < dt * 0.3)
+        this.glide = rand(0.4, 0.9);
       if (this.glide > 0) {
         this.glide -= dt;
         this.amp += (0 - this.amp) * Math.min(1, dt * 6);
@@ -650,13 +650,8 @@
       }
 
       const sp = Math.hypot(this.vx, this.vy);
-      this.flap += dt * (6 + sp * 0.035) * (0.25 + this.amp * 0.75);
+      this.flap += dt * (8 + sp * 0.04) * (0.25 + this.amp * 0.75);
       this.scale = Math.min(1, this.scale + dt * 1.8);
-    }
-
-    /* flap value in [-1, 1]; a glide holds the wings extended */
-    flapValue() {
-      return this.amp * Math.sin(this.flap) + (1 - this.amp) * 0.55;
     }
 
     draw(extraScale, alpha) {
@@ -668,47 +663,86 @@
       ctx.scale(1, 1 - Math.abs(this.bank) * 0.38);   /* fake roll */
       ctx.globalAlpha = alpha === undefined ? 1 : clamp01(alpha);
       ctx.fillStyle = this.color;
-      drawTopBird(s, this.flapValue());
+      drawTopBird(s, this.flap, this.amp);
       ctx.restore();
     }
   }
 
-  /* bird seen from above/below, facing +x. s = body unit, f = flap in [-1,1] */
-  function drawTopBird(s, f) {
-    const ext   = 0.72 + 0.28 * (0.5 + 0.5 * f);  /* wings fold on the upstroke */
-    const span  = s * 2.3 * ext;
-    const tipX  = s * (0.25 * f - 0.15);          /* tips sweep fore/aft */
-    const bowX  = s * (0.55 + 0.25 * f);          /* leading-edge bow */
+  /* bird seen from above, facing +x. Two-segment wings, fanned primaries.
+     s = body unit, ph = flap phase, amp = flap amplitude (0 = gliding) */
+  function drawTopBird(s, ph, amp) {
+    const warp = p => Math.sin(p + 0.4 * Math.sin(p));   /* snappy downstroke */
+    const fi = amp * warp(ph) + (1 - amp) * 0.45;        /* inner wing */
+    const fo = amp * warp(ph - 0.7) + (1 - amp) * 0.30;  /* outer wing lags */
+
+    const dir = a => [Math.sin(a), Math.cos(a)];         /* a=0 → straight out */
 
     for (const d of [1, -1]) {
+      const swingI = 0.18 * fi;
+      const swingO = 0.42 * fo - 0.08;
+      const L1 = s * 1.10 * (1 - 0.10 * (1 - fi) * 0.5);
+      const L2 = s * 1.45 * (1 - 0.42 * (1 - fo) * 0.5);
+
+      const shx = 0.24 * s, shy = d * 0.10 * s;
+      const [ix, iy] = dir(swingI);
+      const wrx = shx + ix * L1, wry = shy + d * iy * L1;
+
+      const aO = swingI + swingO;
+
+      /* fanned primaries: 4 finger tips sweeping backward from the tip */
+      const tips = [];
+      for (let k = 0; k < 4; k++) {
+        const a = aO - (0.14 + 0.02 * k) * k;
+        const l = L2 * (1 - 0.09 * k);
+        const [ox, oy] = dir(a);
+        tips.push([wrx + ox * l, wry + d * oy * l]);
+      }
+
       ctx.beginPath();
-      ctx.moveTo(s * 0.30, d * s * 0.10);
-      ctx.quadraticCurveTo(bowX, d * span * 0.52, tipX, d * span);
-      ctx.quadraticCurveTo(-s * 0.78, d * span * 0.46, -s * 0.38, d * s * 0.16);
+      ctx.moveTo(shx + 0.22 * s, shy * 0.6);
+      ctx.quadraticCurveTo((shx + wrx) / 2 + 0.16 * s, (shy + wry) / 2, wrx + 0.10 * s, wry);
+      ctx.quadraticCurveTo((wrx + tips[0][0]) / 2 + 0.10 * s, (wry + tips[0][1]) / 2, tips[0][0], tips[0][1]);
+      for (let k = 1; k < 4; k++) {
+        const mx = (tips[k-1][0] + tips[k][0]) / 2;
+        const my = (tips[k-1][1] + tips[k][1]) / 2;
+        ctx.lineTo(mx + (wrx - mx) * 0.38, my + (wry - my) * 0.38);
+        ctx.lineTo(tips[k][0], tips[k][1]);
+      }
+      const sex = wrx - 0.52 * s, sey = wry * 0.80;      /* secondaries bulge */
+      ctx.quadraticCurveTo(wrx - 0.40 * s, wry * 0.97, sex, sey);
+      ctx.quadraticCurveTo(-0.30 * s, d * s * 0.72, -0.42 * s, d * s * 0.13);
       ctx.closePath();
       ctx.fill();
     }
 
-    /* body */
+    /* body: teardrop */
     ctx.beginPath();
-    ctx.ellipse(0, 0, s * 0.78, s * 0.22, 0, 0, TAU);
+    ctx.moveTo(s * 0.82, 0);
+    ctx.quadraticCurveTo(s * 0.55, -s * 0.24, -s * 0.05, -s * 0.20);
+    ctx.quadraticCurveTo(-s * 0.45, -s * 0.16, -s * 0.62, 0);
+    ctx.quadraticCurveTo(-s * 0.45, s * 0.16, -s * 0.05, s * 0.20);
+    ctx.quadraticCurveTo(s * 0.55, s * 0.24, s * 0.82, 0);
+    ctx.closePath();
     ctx.fill();
 
     /* head + beak */
     ctx.beginPath();
-    ctx.moveTo(s * 0.55, -s * 0.14);
-    ctx.quadraticCurveTo(s * 1.05, -s * 0.10, s * 1.28, 0);
-    ctx.quadraticCurveTo(s * 1.05, s * 0.10, s * 0.55, s * 0.14);
+    ctx.arc(s * 0.72, 0, s * 0.17, 0, TAU);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(s * 0.84, -s * 0.06);
+    ctx.lineTo(s * 1.10, 0);
+    ctx.lineTo(s * 0.84, s * 0.06);
     ctx.closePath();
     ctx.fill();
 
-    /* fanned tail */
+    /* forked tail */
     ctx.beginPath();
-    ctx.moveTo(-s * 0.55, -s * 0.12);
-    ctx.quadraticCurveTo(-s * 1.15, -s * 0.30, -s * 1.28, -s * 0.17);
-    ctx.lineTo(-s * 1.05, 0);
-    ctx.lineTo(-s * 1.28, s * 0.17);
-    ctx.quadraticCurveTo(-s * 1.15, s * 0.30, -s * 0.55, s * 0.12);
+    ctx.moveTo(-s * 0.42, -s * 0.13);
+    ctx.lineTo(-s * 1.12, -s * 0.22);
+    ctx.lineTo(-s * 0.96, 0);
+    ctx.lineTo(-s * 1.12, s * 0.22);
+    ctx.lineTo(-s * 0.42, s * 0.13);
     ctx.closePath();
     ctx.fill();
   }
@@ -725,11 +759,26 @@
 
     ctx.fillStyle = color;
 
-    /* wings */
+    /* wings with fanned primaries */
     for (const d of [1, -1]) {
+      const tx = d * span, ty = tipY;
+      let ux = tx - d * s * 0.35, uy = ty - s * 0.45;
+      const ul = Math.hypot(ux, uy) || 1; ux /= ul; uy /= ul;
+      const nx = -d * uy, ny = d * ux;      /* trailing-side normal */
+      const fl = span * 0.22;
+      const tf = [];
+      for (let k = 0; k < 3; k++) {
+        tf.push([tx - ux * fl * 0.5 * k + nx * fl * 0.38 * k,
+                 ty - uy * fl * 0.5 * k + ny * fl * 0.38 * k]);
+      }
       ctx.beginPath();
       ctx.moveTo(d * s * 0.35, s * 0.45);
-      ctx.quadraticCurveTo(d * span * 0.5, -s * 0.85 + tipY * 0.45, d * span, tipY);
+      ctx.quadraticCurveTo(d * span * 0.5, -s * 0.85 + tipY * 0.45, tf[0][0], tf[0][1]);
+      for (let k = 1; k < 3; k++) {
+        ctx.lineTo((tf[k-1][0] + tf[k][0]) / 2 - ux * fl * 0.42,
+                   (tf[k-1][1] + tf[k][1]) / 2 - uy * fl * 0.42);
+        ctx.lineTo(tf[k][0], tf[k][1]);
+      }
       ctx.quadraticCurveTo(d * span * 0.6, s * 0.7 + tipY * 0.25, d * s * 0.55, s * 1.0);
       ctx.closePath();
       ctx.fill();
@@ -882,7 +931,7 @@
     build(true);
     /* force the opacity:1 frame before animating back out */
     void blackout.offsetHeight;
-    blackout.style.transition = 'opacity .9s ease';
+    blackout.style.transition = 'opacity .55s ease';
     blackout.style.opacity = '0';
     hoverTimer = 0;
     textTime = 0;
@@ -941,7 +990,7 @@
         });
         if (nearText) {
           hoverTimer += dt * 1000;
-          if (hoverTimer >= 650) { hoverTimer = 0; startSequence(); break; }
+          if (hoverTimer >= 450) { hoverTimer = 0; startSequence(); break; }
         } else hoverTimer = 0;
 
         /* one unprompted take-off, eventually */
@@ -958,9 +1007,9 @@
       case 'COALESCE': {
         particles.forEach(p => { p.update(k); p.draw(); });
         ctx.globalAlpha = 1;
-        const grow = smooth((phaseT - 0.3) / (T_COALESCE - 0.3));
+        const grow = smooth((phaseT - 0.18) / (T_COALESCE - 0.18));
         for (const b of birds) {
-          b.flap += dt * 9;
+          b.flap += dt * 14;
           b.x += rand(-0.3, 0.3);
           b.y += rand(-0.3, 0.3) - 12 * dt * grow;   /* gentle lift-off */
           b.scale = grow;
@@ -972,8 +1021,8 @@
 
       case 'FLOCK': {
         const t = phaseT;
-        const cx = W * 0.5  + Math.sin(t * 0.55) * W * 0.26;
-        const cy = H * 0.42 + Math.sin(t * 0.83 + 1.7) * H * 0.20;
+        const cx = W * 0.5  + Math.sin(t * 1.1) * W * 0.26;
+        const cy = H * 0.42 + Math.sin(t * 1.6 + 1.7) * H * 0.20;
         for (const b of birds) {
           b.flockUpdate(dt, cx, cy, birds);
           b.pose(dt, true);
@@ -1021,7 +1070,7 @@
 
       case 'CIRCLE': {
         const p  = clamp01(phaseT / T_CIRCLE);
-        const th = circle.t0 + circle.dir * TAU * 1.25 * easeInOutQuad(p);
+        const th = circle.t0 + circle.dir * TAU * 1.0 * easeInOutQuad(p);
         const cx = W * 0.5, cy = H * 0.44;
         const Rx = W * 0.33, Ry = H * 0.24;
         let ex = cx + Math.cos(th) * Rx;
