@@ -14,7 +14,6 @@
       --paper: #fbfaf7;
       --muted: #b4b0a8;
       --rule: #eae8e1;
-      --void: #07070a;
     }
 
     html, body {
@@ -65,24 +64,13 @@
       transition: opacity 1.4s ease;
       pointer-events: none;
     }
-    #flock.on  { opacity: 1; }
-    #flock.dim { opacity: 0; transition: opacity .45s ease; }
+    #flock.on { opacity: 1; }
 
     /* ── canvas ───────────────────────────────────────────────── */
     #canvas {
       position: absolute;
       top: 0; left: 0;
       width: 100%; height: 100%;
-    }
-
-    /* ── blackout (the swallow) ───────────────────────────────── */
-    #blackout {
-      position: fixed;
-      inset: 0;
-      background: var(--void);
-      opacity: 0;
-      pointer-events: none;
-      z-index: 999;
     }
 
     /* ── bottom strip (inside hero) ───────────────────────────── */
@@ -254,8 +242,6 @@
     <div class="scroll-hint">scroll</div>
   </section>
 
-  <div id="blackout"></div>
-
   <main>
     <section class="deck">
       <h2>what</h2>
@@ -419,7 +405,6 @@
   const canvas   = document.getElementById('canvas');
   const ctx      = canvas.getContext('2d');
   const hero     = document.querySelector('.hero');
-  const blackout = document.getElementById('blackout');
   const flockVid = document.getElementById('flock');
 
   const TAU     = Math.PI * 2;
@@ -427,39 +412,15 @@
 
   let W = 0, H = 0;
 
-  const INK  = '#141414';
-  const VOID = '#07070a';
-  /* near-black with an iridescent cast, like starling / raven feathers */
-  const BIRD_COLORS = ['#15151d', '#182230', '#122724', '#241a2a', '#101016'];
-  const BEAK_COLOR  = '#3b3b46';
+  const INK = '#141414';
 
   const MOUSE = { x: -9999, y: -9999 };
   const REPEL = 110;
   const GAP   = 4;
 
-  /* sequence timing (seconds) */
-  const T_CIRCLE = 1.3;
-  const T_DIVE   = 1.15;
-  const T_HOLD   = 0.5;
-
-  const qs = new URLSearchParams(location.search);
-  const AUTO_AT = qs.has('demo') ? 0.3 : 10;   /* ?demo for headless testing */
-
   /* ── helpers ────────────────────────────────────────────────── */
   const rand    = (a, b) => a + Math.random() * (b - a);
-  const lerp    = (a, b, t) => a + (b - a) * t;
   const clamp01 = v => v < 0 ? 0 : v > 1 ? 1 : v;
-  const smooth  = v => { v = clamp01(v); return v * v * (3 - 2 * v); };
-  const easeInCubic  = v => v * v * v;
-  const easeInOutQuad = v => v < .5 ? 2 * v * v : 1 - Math.pow(-2 * v + 2, 2) / 2;
-
-  function hexRgb(h) {
-    return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
-  }
-  function mixColor(h1, h2, t) {
-    const a = hexRgb(h1), b = hexRgb(h2);
-    return `rgb(${Math.round(lerp(a[0], b[0], t))},${Math.round(lerp(a[1], b[1], t))},${Math.round(lerp(a[2], b[2], t))})`;
-  }
 
   function particleColor() {
     const r = Math.random();
@@ -492,16 +453,10 @@
 
   /* ── particles (the logo) ───────────────────────────────────── */
   class Particle {
-    constructor(tx, ty, fromCenter) {
+    constructor(tx, ty) {
       this.tx = tx; this.ty = ty;
-      if (fromCenter) {
-        const a = rand(0, TAU), d = rand(0, Math.min(W, H) * 0.3);
-        this.x = W * 0.5 + Math.cos(a) * d;
-        this.y = H * 0.45 + Math.sin(a) * d;
-      } else {
-        this.x = rand(0, W);
-        this.y = rand(0, H);
-      }
+      this.x = rand(0, W);
+      this.y = rand(0, H);
       this.vx = rand(-2, 2);
       this.vy = rand(-2, 2);
       this.r  = rand(0.7, 1.7);
@@ -509,20 +464,9 @@
       this.targetAlpha = rand(0.55, 0.95);
       this.color = particleColor();
       this.ox = 0;           /* glitch offset */
-      this.scatter = false;  /* startled: drift away and fade */
     }
 
     update(k) {
-      if (this.scatter) {
-        const damp = Math.pow(0.96, k);
-        this.vx *= damp;
-        this.vy *= damp;
-        this.x  += this.vx * k;
-        this.y  += this.vy * k;
-        this.alpha += (0 - this.alpha) * 0.08 * k;
-        return;
-      }
-
       this.vx += ((this.tx + this.ox - this.x) * 0.048 + (Math.random() - .5) * 0.18) * k;
       this.vy += ((this.ty - this.y) * 0.048 + (Math.random() - .5) * 0.18) * k;
 
@@ -554,261 +498,14 @@
     }
   }
 
-  /* ── the bird (drawn protagonist of the swallow) ────────────── */
-  class Bird {
-    constructor(x, y) {
-      this.x = x; this.y = y;
-      const a = rand(0, TAU);
-      this.vx = Math.cos(a) * 40;
-      this.vy = Math.sin(a) * 40;
-      this.size  = 13;                       /* body unit in px */
-      this.color = BIRD_COLORS[(Math.random() * BIRD_COLORS.length) | 0];
-      this.flap  = rand(0, TAU);
-      this.amp   = 1;                        /* flap amplitude; eases to 0 in a glide */
-      this.glide = 0;
-      this.scale = 1;
-      this.heading = a;
-      this.bank = 0;
-    }
-
-    pose(dt, allowGlide) {
-      const h = Math.atan2(this.vy, this.vx);
-      let dh = h - this.heading;
-      while (dh >  Math.PI) dh -= TAU;
-      while (dh < -Math.PI) dh += TAU;
-      this.heading += dh * Math.min(1, dt * 9);
-      const bankTarget = Math.max(-0.9, Math.min(0.9, dh * 7));
-      this.bank += (bankTarget - this.bank) * Math.min(1, dt * 5);
-
-      if (allowGlide && this.glide <= 0 && Math.random() < dt * 0.3)
-        this.glide = rand(0.4, 0.9);
-      if (this.glide > 0) {
-        this.glide -= dt;
-        this.amp += (0 - this.amp) * Math.min(1, dt * 6);
-      } else {
-        this.amp += (1 - this.amp) * Math.min(1, dt * 4);
-      }
-
-      const sp = Math.hypot(this.vx, this.vy);
-      this.flap += dt * (8 + sp * 0.04) * (0.25 + this.amp * 0.75);
-      this.scale = Math.min(1, this.scale + dt * 1.8);
-    }
-
-    draw(extraScale, alpha) {
-      const s = this.size * this.scale * (extraScale || 1);
-      if (s <= 0.2) return;
-      ctx.save();
-      ctx.translate(this.x, this.y);
-      ctx.rotate(this.heading);
-      ctx.scale(1, 1 - Math.abs(this.bank) * 0.38);   /* fake roll */
-      ctx.globalAlpha = alpha === undefined ? 1 : clamp01(alpha);
-      ctx.fillStyle = this.color;
-      drawTopBird(s, this.flap, this.amp);
-      ctx.restore();
-    }
-  }
-
-  /* bird seen from above, facing +x. Two-segment wings, fanned primaries.
-     s = body unit, ph = flap phase, amp = flap amplitude (0 = gliding) */
-  function drawTopBird(s, ph, amp) {
-    const warp = p => Math.sin(p + 0.4 * Math.sin(p));   /* snappy downstroke */
-    const fi = amp * warp(ph) + (1 - amp) * 0.45;        /* inner wing */
-    const fo = amp * warp(ph - 0.7) + (1 - amp) * 0.30;  /* outer wing lags */
-
-    const dir = a => [Math.sin(a), Math.cos(a)];         /* a=0 → straight out */
-
-    for (const d of [1, -1]) {
-      const swingI = 0.18 * fi;
-      const swingO = 0.42 * fo - 0.08;
-      const L1 = s * 1.10 * (1 - 0.10 * (1 - fi) * 0.5);
-      const L2 = s * 1.45 * (1 - 0.42 * (1 - fo) * 0.5);
-
-      const shx = 0.24 * s, shy = d * 0.10 * s;
-      const [ix, iy] = dir(swingI);
-      const wrx = shx + ix * L1, wry = shy + d * iy * L1;
-
-      const aO = swingI + swingO;
-
-      /* fanned primaries: 4 finger tips sweeping backward from the tip */
-      const tips = [];
-      for (let k = 0; k < 4; k++) {
-        const a = aO - (0.14 + 0.02 * k) * k;
-        const l = L2 * (1 - 0.09 * k);
-        const [ox, oy] = dir(a);
-        tips.push([wrx + ox * l, wry + d * oy * l]);
-      }
-
-      ctx.beginPath();
-      ctx.moveTo(shx + 0.22 * s, shy * 0.6);
-      ctx.quadraticCurveTo((shx + wrx) / 2 + 0.16 * s, (shy + wry) / 2, wrx + 0.10 * s, wry);
-      ctx.quadraticCurveTo((wrx + tips[0][0]) / 2 + 0.10 * s, (wry + tips[0][1]) / 2, tips[0][0], tips[0][1]);
-      for (let k = 1; k < 4; k++) {
-        const mx = (tips[k-1][0] + tips[k][0]) / 2;
-        const my = (tips[k-1][1] + tips[k][1]) / 2;
-        ctx.lineTo(mx + (wrx - mx) * 0.38, my + (wry - my) * 0.38);
-        ctx.lineTo(tips[k][0], tips[k][1]);
-      }
-      const sex = wrx - 0.52 * s, sey = wry * 0.80;      /* secondaries bulge */
-      ctx.quadraticCurveTo(wrx - 0.40 * s, wry * 0.97, sex, sey);
-      ctx.quadraticCurveTo(-0.30 * s, d * s * 0.72, -0.42 * s, d * s * 0.13);
-      ctx.closePath();
-      ctx.fill();
-    }
-
-    /* body: teardrop */
-    ctx.beginPath();
-    ctx.moveTo(s * 0.82, 0);
-    ctx.quadraticCurveTo(s * 0.55, -s * 0.24, -s * 0.05, -s * 0.20);
-    ctx.quadraticCurveTo(-s * 0.45, -s * 0.16, -s * 0.62, 0);
-    ctx.quadraticCurveTo(-s * 0.45, s * 0.16, -s * 0.05, s * 0.20);
-    ctx.quadraticCurveTo(s * 0.55, s * 0.24, s * 0.82, 0);
-    ctx.closePath();
-    ctx.fill();
-
-    /* head + beak */
-    ctx.beginPath();
-    ctx.arc(s * 0.72, 0, s * 0.17, 0, TAU);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(s * 0.84, -s * 0.06);
-    ctx.lineTo(s * 1.10, 0);
-    ctx.lineTo(s * 0.84, s * 0.06);
-    ctx.closePath();
-    ctx.fill();
-
-    /* forked tail */
-    ctx.beginPath();
-    ctx.moveTo(-s * 0.42, -s * 0.13);
-    ctx.lineTo(-s * 1.12, -s * 0.22);
-    ctx.lineTo(-s * 0.96, 0);
-    ctx.lineTo(-s * 1.12, s * 0.22);
-    ctx.lineTo(-s * 0.42, s * 0.13);
-    ctx.closePath();
-    ctx.fill();
-  }
-
-  /* bird facing the camera. mouth at (0,0). s = head unit, gape in [0,1] */
-  function drawFrontBird(x, y, s, flapPhase, gape, color, alpha) {
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.globalAlpha = clamp01(alpha);
-
-    const f    = Math.sin(flapPhase);
-    const span = s * 2.8;
-    const tipY = (-f * 0.95 - 0.3) * s * 1.6;
-
-    ctx.fillStyle = color;
-
-    /* wings with fanned primaries */
-    for (const d of [1, -1]) {
-      const tx = d * span, ty = tipY;
-      let ux = tx - d * s * 0.35, uy = ty - s * 0.45;
-      const ul = Math.hypot(ux, uy) || 1; ux /= ul; uy /= ul;
-      const nx = -d * uy, ny = d * ux;      /* trailing-side normal */
-      const fl = span * 0.22;
-      const tf = [];
-      for (let k = 0; k < 3; k++) {
-        tf.push([tx - ux * fl * 0.5 * k + nx * fl * 0.38 * k,
-                 ty - uy * fl * 0.5 * k + ny * fl * 0.38 * k]);
-      }
-      ctx.beginPath();
-      ctx.moveTo(d * s * 0.35, s * 0.45);
-      ctx.quadraticCurveTo(d * span * 0.5, -s * 0.85 + tipY * 0.45, tf[0][0], tf[0][1]);
-      for (let k = 1; k < 3; k++) {
-        ctx.lineTo((tf[k-1][0] + tf[k][0]) / 2 - ux * fl * 0.42,
-                   (tf[k-1][1] + tf[k][1]) / 2 - uy * fl * 0.42);
-        ctx.lineTo(tf[k][0], tf[k][1]);
-      }
-      ctx.quadraticCurveTo(d * span * 0.6, s * 0.7 + tipY * 0.25, d * s * 0.55, s * 1.0);
-      ctx.closePath();
-      ctx.fill();
-    }
-
-    /* tail hint behind body */
-    ctx.beginPath();
-    ctx.moveTo(-s * 0.4, s * 1.6);
-    ctx.lineTo(0, s * 2.6);
-    ctx.lineTo(s * 0.4, s * 1.6);
-    ctx.closePath();
-    ctx.fill();
-
-    /* body */
-    ctx.beginPath();
-    ctx.ellipse(0, s * 1.05, s * 0.72, s * 1.1, 0, 0, TAU);
-    ctx.fill();
-
-    /* head */
-    ctx.beginPath();
-    ctx.arc(0, 0, s * 0.62, 0, TAU);
-    ctx.fill();
-
-    /* eyes — fade as the mouth opens */
-    const eyeA = clamp01(1 - gape * 1.6);
-    if (eyeA > 0.01) {
-      ctx.globalAlpha = clamp01(alpha) * eyeA;
-      ctx.fillStyle = '#fbfaf7';
-      ctx.beginPath(); ctx.arc(-s * 0.26, -s * 0.22, s * 0.075, 0, TAU); ctx.fill();
-      ctx.beginPath(); ctx.arc( s * 0.26, -s * 0.22, s * 0.075, 0, TAU); ctx.fill();
-      ctx.globalAlpha = clamp01(alpha);
-    }
-
-    /* mandibles — the beak widens as it opens */
-    const bw = s * (0.26 + gape * 0.46);
-    const up = s * (0.40 + gape * 0.55);
-    const lo = s * (0.34 + gape * 0.70);
-    ctx.fillStyle = BEAK_COLOR;
-    ctx.beginPath();
-    ctx.moveTo(-bw, 0);
-    ctx.quadraticCurveTo(-bw * 0.3, -up * 0.6, 0, -up);
-    ctx.quadraticCurveTo( bw * 0.3, -up * 0.6, bw, 0);
-    ctx.closePath();
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(-bw, 0);
-    ctx.quadraticCurveTo(-bw * 0.3, lo * 0.6, 0, lo);
-    ctx.quadraticCurveTo( bw * 0.3, lo * 0.6, bw, 0);
-    ctx.closePath();
-    ctx.fill();
-
-    /* gape interior — the thing that swallows you */
-    if (gape > 0.02) {
-      const gx = s * (0.24 + gape * 0.46);
-      const ty = s * (0.30 + gape * 0.38) * gape;
-      const by = s * (0.36 + gape * 0.44) * gape;
-      ctx.fillStyle = mixColor('#5a151b', VOID, smooth((gape - 0.75) / 0.25));
-      ctx.beginPath();
-      ctx.moveTo(-gx, 0);
-      ctx.quadraticCurveTo(-gx * 0.92, -ty * 0.8, 0, -ty);
-      ctx.quadraticCurveTo( gx * 0.92, -ty * 0.8, gx, 0);
-      ctx.quadraticCurveTo( gx * 0.92,  by * 0.8, 0, by);
-      ctx.quadraticCurveTo(-gx * 0.92,  by * 0.8, -gx, 0);
-      ctx.closePath();
-      ctx.fill();
-    }
-
-    ctx.restore();
-  }
-
   /* ── state ──────────────────────────────────────────────────── */
-  let state      = 'TEXT';
-  let phaseT     = 0;
-  let particles  = [];
-  let heroBird   = null;
-  let hoverTimer = 0;
-  let textTime   = 0;
-  let autoPlayed = false;
-
+  let particles   = [];
   let glitchTimer = 0;
   let glitching   = false;
 
-  const circle = { t0: 0, dir: 1, x0: 0, y0: 0 };
-  const dive   = { x0: 0, y0: 0, s0: 1 };
-
-  function setState(s) { state = s; phaseT = 0; }
-
-  function build(fromCenter) {
+  function build() {
     const pts = sampleText('unseen.codes');
-    particles = pts.map(p => new Particle(p.x, p.y, fromCenter));
+    particles = pts.map(p => new Particle(p.x, p.y));
   }
 
   function resize() {
@@ -820,58 +517,7 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
 
-  /* ── sequence steps ─────────────────────────────────────────── */
-  function startSequence() {
-    if (state !== 'TEXT') return;
-    autoPlayed = true;
-
-    /* startle the logo apart */
-    for (const p of particles) {
-      const a = Math.atan2(p.y - H * 0.38, p.x - W * 0.45) + rand(-0.6, 0.6);
-      const sp = rand(2, 8);
-      p.vx += Math.cos(a) * sp;
-      p.vy += Math.sin(a) * sp - rand(0, 2);
-      p.scatter = true;
-    }
-
-    /* one bird sweeps in from the side */
-    const side = Math.random() < 0.5 ? -1 : 1;
-    heroBird = new Bird(side > 0 ? W + 70 : -70, rand(H * 0.18, H * 0.5));
-    heroBird.vx = -side * 320;
-    heroBird.vy = rand(-50, 50);
-    heroBird.heading = Math.atan2(heroBird.vy, heroBird.vx);
-
-    const cx = W * 0.5, cy = H * 0.44;
-    circle.x0 = heroBird.x;
-    circle.y0 = heroBird.y;
-    circle.t0 = Math.atan2((heroBird.y - cy) / (H * 0.24), (heroBird.x - cx) / (W * 0.33));
-    const tangX = -Math.sin(circle.t0), tangY = Math.cos(circle.t0);
-    circle.dir = (heroBird.vx * tangX + heroBird.vy * tangY) >= 0 ? 1 : -1;
-
-    flockVid.classList.add('dim');
-    setState('CIRCLE');
-  }
-
-  function swallow() {
-    blackout.style.transition = 'none';
-    blackout.style.opacity = '1';
-    setState('HOLD');
-  }
-
-  function rebuild() {
-    heroBird = null;
-    build(true);
-    /* force the opacity:1 frame before animating back out */
-    void blackout.offsetHeight;
-    blackout.style.transition = 'opacity .55s ease';
-    blackout.style.opacity = '0';
-    flockVid.classList.remove('dim');
-    hoverTimer = 0;
-    textTime = 0;
-    setState('TEXT');
-  }
-
-  /* ── glitch (TEXT state only) ───────────────────────────────── */
+  /* ── glitch ─────────────────────────────────────────────────── */
   function triggerGlitch() {
     glitching = true;
     const shift  = (Math.random() - .5) * 28;
@@ -893,102 +539,16 @@
     const dt = Math.min(lastTs ? (ts - lastTs) / 1000 : 0.016, 0.05);
     lastTs = ts;
     const k = Math.min(dt * 60, 2);   /* frame-normalised factor for particle physics */
-    phaseT += dt;
 
     ctx.clearRect(0, 0, W, H);
 
-    switch (state) {
+    particles.forEach(p => { p.update(k); p.draw(); });
+    ctx.globalAlpha = 1;
 
-      case 'TEXT': {
-        textTime += dt;
-        particles.forEach(p => { p.update(k); p.draw(); });
-        ctx.globalAlpha = 1;
-
-        /* hover-to-take-off */
-        const nearText = MOUSE.x !== -9999 && particles.some(p => {
-          const dx = p.tx - MOUSE.x, dy = p.ty - MOUSE.y;
-          return dx * dx + dy * dy < 55 * 55;
-        });
-        if (nearText) {
-          hoverTimer += dt * 1000;
-          if (hoverTimer >= 450) { hoverTimer = 0; startSequence(); break; }
-        } else hoverTimer = 0;
-
-        /* one unprompted take-off, eventually */
-        if (!autoPlayed && textTime > AUTO_AT) { startSequence(); break; }
-
-        glitchTimer -= dt * 1000;
-        if (glitchTimer <= 0 && !glitching) {
-          glitchTimer = 3000 + Math.random() * 7000;
-          triggerGlitch();
-        }
-        break;
-      }
-
-      case 'CIRCLE': {
-        /* the startled logo drifts apart while the bird wheels */
-        particles = particles.filter(p => p.alpha > 0.02);
-        particles.forEach(p => { p.update(k); p.draw(); });
-        ctx.globalAlpha = 1;
-
-        const p  = clamp01(phaseT / T_CIRCLE);
-        const th = circle.t0 + circle.dir * TAU * 0.9 * easeInOutQuad(p);
-        const cx = W * 0.5, cy = H * 0.44;
-        const Rx = W * 0.33, Ry = H * 0.24;
-        let ex = cx + Math.cos(th) * Rx;
-        let ey = cy + Math.sin(th) * Ry;
-        const blend = smooth(p / 0.25);
-        ex = lerp(circle.x0, ex, blend);
-        ey = lerp(circle.y0, ey, blend);
-
-        const b = heroBird;
-        b.vx = (ex - b.x) / Math.max(dt, 0.001);
-        b.vy = (ey - b.y) / Math.max(dt, 0.001);
-        b.x = ex; b.y = ey;
-        b.glide = 0;
-        b.pose(dt, false);
-        b.draw(1 + p * 1.3);
-
-        if (p >= 1) {
-          dive.x0 = b.x; dive.y0 = b.y;
-          dive.s0 = b.size * 2.3;
-          setState('DIVE');
-        }
-        break;
-      }
-
-      case 'DIVE': {
-        const p  = clamp01(phaseT / T_DIVE);
-        const pe = easeInCubic(p);
-        const b  = heroBird;
-
-        const px = lerp(dive.x0, W * 0.5, smooth(p / 0.45)) + Math.sin(phaseT * 7) * 4 * (1 - p);
-        const py = lerp(dive.y0, H * 0.46, smooth(p / 0.45)) + Math.cos(phaseT * 5) * 3 * (1 - p);
-
-        const sMax = Math.max(W, H) * 1.8;
-        const s    = dive.s0 * Math.pow(sMax / dive.s0, pe);
-        const gape = smooth((p - 0.45) / 0.55);
-        const q    = smooth(p / 0.2);     /* top-view → front-view crossfade */
-
-        b.flap += dt * (11 - 6 * p);
-
-        if (q < 1) {
-          b.x = px; b.y = py;
-          b.size = s * 0.45;
-          b.scale = 1;
-          b.draw(1, 1 - q);
-        }
-        drawFrontBird(px, py, s * 0.5, b.flap, gape, b.color, q);
-        ctx.globalAlpha = 1;
-
-        if (p >= 0.99) swallow();
-        break;
-      }
-
-      case 'HOLD': {
-        if (phaseT >= T_HOLD) rebuild();
-        break;
-      }
+    glitchTimer -= dt * 1000;
+    if (glitchTimer <= 0 && !glitching) {
+      glitchTimer = 3000 + Math.random() * 7000;
+      triggerGlitch();
     }
   }
 
@@ -1009,22 +569,14 @@
   hero.addEventListener('touchend', () => {
     MOUSE.x = MOUSE.y = -9999;
   });
-  canvas.addEventListener('click', () => {
-    if (!reduced) startSequence();
-  });
 
   let resizeId;
   window.addEventListener('resize', () => {
     clearTimeout(resizeId);
     resizeId = setTimeout(() => {
       resize();
-      heroBird = null;
-      blackout.style.transition = 'none';
-      blackout.style.opacity = '0';
-      flockVid.classList.remove('dim');
       build();
       if (reduced) drawStatic();
-      else setState('TEXT');
     }, 150);
   });
 
