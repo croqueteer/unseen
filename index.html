@@ -55,6 +55,19 @@
       100% { transform: translateY(-20vh); opacity: 0; }
     }
 
+    /* ── real flock footage, sky keyed to white ───────────────── */
+    #flock {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+      mix-blend-mode: multiply;   /* white sky vanishes into the paper */
+      opacity: 0;
+      transition: opacity 1.4s ease;
+      pointer-events: none;
+    }
+    #flock.on  { opacity: 1; }
+    #flock.dim { opacity: 0; transition: opacity .45s ease; }
+
     /* ── canvas ───────────────────────────────────────────────── */
     #canvas {
       position: absolute;
@@ -127,6 +140,7 @@
     @media (prefers-reduced-motion: reduce) {
       .ghost-line { animation: none; opacity: 0; }
       .hero-footer, .scroll-hint { animation: none; opacity: 1; transform: none; }
+      #flock { display: none; }
     }
 
     /* ── content sections ─────────────────────────────────────── */
@@ -227,6 +241,9 @@
 
   <section class="hero">
     <div id="ghost"></div>
+    <!-- starling murmuration, sky keyed to white; source footage:
+         https://www.pexels.com/video/murmurations-19378837/ (Pexels license) -->
+    <video id="flock" src="flock.mp4" autoplay muted loop playsinline aria-hidden="true"></video>
     <canvas id="canvas"></canvas>
 
     <div class="hero-footer">
@@ -403,6 +420,7 @@
   const ctx      = canvas.getContext('2d');
   const hero     = document.querySelector('.hero');
   const blackout = document.getElementById('blackout');
+  const flockVid = document.getElementById('flock');
 
   const TAU     = Math.PI * 2;
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -420,12 +438,9 @@
   const GAP   = 4;
 
   /* sequence timing (seconds) */
-  const T_COALESCE = 0.7;
-  const T_FLOCK    = 1.9;
-  const T_EXIT     = 0.9;
-  const T_CIRCLE   = 1.7;
-  const T_DIVE     = 1.15;
-  const T_HOLD     = 0.5;
+  const T_CIRCLE = 1.3;
+  const T_DIVE   = 1.15;
+  const T_HOLD   = 0.5;
 
   const qs = new URLSearchParams(location.search);
   const AUTO_AT = qs.has('demo') ? 0.3 : 10;   /* ?demo for headless testing */
@@ -493,28 +508,32 @@
       this.alpha = 0;
       this.targetAlpha = rand(0.55, 0.95);
       this.color = particleColor();
-      this.ox = 0;        /* glitch offset */
-      this.seed = null;   /* coalesce target (a bird) */
+      this.ox = 0;           /* glitch offset */
+      this.scatter = false;  /* startled: drift away and fade */
     }
 
     update(k) {
-      const tx = this.seed ? this.seed.x : this.tx + this.ox;
-      const ty = this.seed ? this.seed.y : this.ty;
-      const spring = this.seed ? 0.09 : 0.048;
+      if (this.scatter) {
+        const damp = Math.pow(0.96, k);
+        this.vx *= damp;
+        this.vy *= damp;
+        this.x  += this.vx * k;
+        this.y  += this.vy * k;
+        this.alpha += (0 - this.alpha) * 0.08 * k;
+        return;
+      }
 
-      this.vx += ((tx - this.x) * spring + (Math.random() - .5) * 0.18) * k;
-      this.vy += ((ty - this.y) * spring + (Math.random() - .5) * 0.18) * k;
+      this.vx += ((this.tx + this.ox - this.x) * 0.048 + (Math.random() - .5) * 0.18) * k;
+      this.vy += ((this.ty - this.y) * 0.048 + (Math.random() - .5) * 0.18) * k;
 
-      if (!this.seed) {
-        const mdx = this.x - MOUSE.x;
-        const mdy = this.y - MOUSE.y;
-        const d2  = mdx * mdx + mdy * mdy;
-        if (d2 < REPEL * REPEL) {
-          const d = Math.sqrt(d2) || 1;
-          const f = ((REPEL - d) / REPEL) * 6;
-          this.vx += (mdx / d) * f * k;
-          this.vy += (mdy / d) * f * k;
-        }
+      const mdx = this.x - MOUSE.x;
+      const mdy = this.y - MOUSE.y;
+      const d2  = mdx * mdx + mdy * mdy;
+      if (d2 < REPEL * REPEL) {
+        const d = Math.sqrt(d2) || 1;
+        const f = ((REPEL - d) / REPEL) * 6;
+        this.vx += (mdx / d) * f * k;
+        this.vy += (mdy / d) * f * k;
       }
 
       const damp = Math.pow(0.82, k);
@@ -523,9 +542,7 @@
       this.x  += this.vx * k;
       this.y  += this.vy * k;
 
-      const ta = this.seed ? 0 : this.targetAlpha;
-      const ar = this.seed ? 0.09 : 0.06;
-      this.alpha += (ta - this.alpha) * ar * k;
+      this.alpha += (this.targetAlpha - this.alpha) * 0.06 * k;
     }
 
     draw() {
@@ -537,98 +554,21 @@
     }
   }
 
-  /* ── birds ──────────────────────────────────────────────────── */
+  /* ── the bird (drawn protagonist of the swallow) ────────────── */
   class Bird {
     constructor(x, y) {
       this.x = x; this.y = y;
       const a = rand(0, TAU);
       this.vx = Math.cos(a) * 40;
       this.vy = Math.sin(a) * 40;
-      this.depth = rand(0.55, 1.3);          /* fake distance: scale + speed */
-      this.size  = 9.5 * this.depth;         /* body unit in px */
-      this.speedMax = rand(300, 380) * (0.7 + 0.3 * this.depth);
+      this.size  = 13;                       /* body unit in px */
       this.color = BIRD_COLORS[(Math.random() * BIRD_COLORS.length) | 0];
       this.flap  = rand(0, TAU);
       this.amp   = 1;                        /* flap amplitude; eases to 0 in a glide */
       this.glide = 0;
-      this.scale = 0;                        /* spawn scale-in */
+      this.scale = 1;
       this.heading = a;
       this.bank = 0;
-      this.wseed = rand(0, 100);
-      this.wt = rand(0, 100);
-      this.exitDir = null;
-      this.gone = false;
-    }
-
-    flockUpdate(dt, cx, cy, flock) {
-      const S = this.speedMax;
-      let ax = 0, ay = 0;
-
-      /* toward the wandering centre */
-      const dx = cx - this.x, dy = cy - this.y;
-      const dc = Math.hypot(dx, dy) || 1;
-      const want = Math.min(dc * 1.3, S);
-      ax += (dx / dc * want - this.vx) * 1.2;
-      ay += (dy / dc * want - this.vy) * 1.2;
-
-      /* individual wander */
-      this.wt += dt;
-      ax += Math.cos(this.wt * 1.7 + this.wseed) * S * 1.1;
-      ay += Math.sin(this.wt * 1.3 + this.wseed * 2.1) * S * 1.1;
-
-      /* separation + alignment */
-      let sx = 0, sy = 0, avx = 0, avy = 0, n = 0;
-      for (const o of flock) {
-        if (o === this || o.gone) continue;
-        const ox = this.x - o.x, oy = this.y - o.y;
-        const d2 = ox * ox + oy * oy;
-        if (d2 < 2500 && d2 > 0.01) {
-          const d = Math.sqrt(d2);
-          const f = (50 - d) / 50;
-          sx += ox / d * f; sy += oy / d * f;
-        }
-        if (d2 < 12100) { avx += o.vx; avy += o.vy; n++; }
-      }
-      ax += sx * S * 4.0;
-      ay += sy * S * 4.0;
-      if (n) {
-        ax += (avx / n - this.vx) * 0.9;
-        ay += (avy / n - this.vy) * 0.9;
-      }
-
-      /* soft walls */
-      const M = 50;
-      if (this.x < M)     ax += (M - this.x) * 8;
-      if (this.x > W - M) ax -= (this.x - (W - M)) * 8;
-      if (this.y < M)     ay += (M - this.y) * 8;
-      if (this.y > H - M) ay -= (this.y - (H - M)) * 8;
-
-      this.vx += ax * dt;
-      this.vy += ay * dt;
-
-      const sp = Math.hypot(this.vx, this.vy) || 1;
-      const cl = sp > S ? S / sp : (sp < S * 0.45 ? (S * 0.45) / sp : 1);
-      this.vx *= cl; this.vy *= cl;
-
-      this.x += this.vx * dt;
-      this.y += this.vy * dt;
-    }
-
-    exitUpdate(dt) {
-      if (!this.exitDir) {
-        const sp = Math.hypot(this.vx, this.vy) || 1;
-        this.exitDir = { x: this.vx / sp, y: this.vy / sp };
-        /* bias slightly upward — birds leave into the sky */
-        this.exitDir.y -= 0.45;
-        const n = Math.hypot(this.exitDir.x, this.exitDir.y);
-        this.exitDir.x /= n; this.exitDir.y /= n;
-      }
-      this.vx += this.exitDir.x * 1500 * dt;
-      this.vy += this.exitDir.y * 1500 * dt;
-      this.x += this.vx * dt;
-      this.y += this.vy * dt;
-      if (this.x < -120 || this.x > W + 120 || this.y < -120 || this.y > H + 120)
-        this.gone = true;
     }
 
     pose(dt, allowGlide) {
@@ -853,12 +793,10 @@
   let state      = 'TEXT';
   let phaseT     = 0;
   let particles  = [];
-  let birds      = [];
   let heroBird   = null;
   let hoverTimer = 0;
   let textTime   = 0;
   let autoPlayed = false;
-  let skyA       = 0;
 
   let glitchTimer = 0;
   let glitching   = false;
@@ -887,36 +825,31 @@
     if (state !== 'TEXT') return;
     autoPlayed = true;
 
-    /* pick spread-out seed points from the text itself */
-    const N = W < 640 ? 14 : 24;
-    const idx = particles.map((_, i) => i);
-    for (let i = idx.length - 1; i > 0; i--) {
-      const j = (Math.random() * (i + 1)) | 0;
-      [idx[i], idx[j]] = [idx[j], idx[i]];
-    }
-    const seeds = [];
-    for (const i of idx) {
-      const p = particles[i];
-      if (seeds.every(s => (s.x - p.tx) ** 2 + (s.y - p.ty) ** 2 > 55 * 55)) {
-        seeds.push({ x: p.tx, y: p.ty });
-        if (seeds.length === N) break;
-      }
-    }
-    while (seeds.length < N) seeds.push({ x: rand(W * .15, W * .85), y: rand(H * .2, H * .5) });
-
-    birds = seeds.map(s => new Bird(s.x, s.y));
-
-    /* each particle flies into its nearest bird */
+    /* startle the logo apart */
     for (const p of particles) {
-      let best = null, bd = Infinity;
-      for (const b of birds) {
-        const d = (b.x - p.tx) ** 2 + (b.y - p.ty) ** 2;
-        if (d < bd) { bd = d; best = b; }
-      }
-      p.seed = best;
+      const a = Math.atan2(p.y - H * 0.38, p.x - W * 0.45) + rand(-0.6, 0.6);
+      const sp = rand(2, 8);
+      p.vx += Math.cos(a) * sp;
+      p.vy += Math.sin(a) * sp - rand(0, 2);
+      p.scatter = true;
     }
 
-    setState('COALESCE');
+    /* one bird sweeps in from the side */
+    const side = Math.random() < 0.5 ? -1 : 1;
+    heroBird = new Bird(side > 0 ? W + 70 : -70, rand(H * 0.18, H * 0.5));
+    heroBird.vx = -side * 320;
+    heroBird.vy = rand(-50, 50);
+    heroBird.heading = Math.atan2(heroBird.vy, heroBird.vx);
+
+    const cx = W * 0.5, cy = H * 0.44;
+    circle.x0 = heroBird.x;
+    circle.y0 = heroBird.y;
+    circle.t0 = Math.atan2((heroBird.y - cy) / (H * 0.24), (heroBird.x - cx) / (W * 0.33));
+    const tangX = -Math.sin(circle.t0), tangY = Math.cos(circle.t0);
+    circle.dir = (heroBird.vx * tangX + heroBird.vy * tangY) >= 0 ? 1 : -1;
+
+    flockVid.classList.add('dim');
+    setState('CIRCLE');
   }
 
   function swallow() {
@@ -926,13 +859,13 @@
   }
 
   function rebuild() {
-    birds = [];
     heroBird = null;
     build(true);
     /* force the opacity:1 frame before animating back out */
     void blackout.offsetHeight;
     blackout.style.transition = 'opacity .55s ease';
     blackout.style.opacity = '0';
+    flockVid.classList.remove('dim');
     hoverTimer = 0;
     textTime = 0;
     setState('TEXT');
@@ -964,18 +897,6 @@
 
     ctx.clearRect(0, 0, W, H);
 
-    /* soft sky wash while the birds are up */
-    const skyTarget = (state === 'FLOCK' || state === 'EXIT' || state === 'CIRCLE' || state === 'DIVE') ? 1 : 0;
-    skyA += (skyTarget - skyA) * Math.min(1, dt * 1.6);
-    if (skyA > 0.01) {
-      const g = ctx.createLinearGradient(0, 0, 0, H);
-      g.addColorStop(0,    `rgba(173,196,212,${0.26 * skyA})`);
-      g.addColorStop(0.55, `rgba(224,213,196,${0.12 * skyA})`);
-      g.addColorStop(1,    'rgba(255,255,255,0)');
-      ctx.fillStyle = g;
-      ctx.fillRect(0, 0, W, H);
-    }
-
     switch (state) {
 
       case 'TEXT': {
@@ -1004,78 +925,19 @@
         break;
       }
 
-      case 'COALESCE': {
+      case 'CIRCLE': {
+        /* the startled logo drifts apart while the bird wheels */
+        particles = particles.filter(p => p.alpha > 0.02);
         particles.forEach(p => { p.update(k); p.draw(); });
         ctx.globalAlpha = 1;
-        const grow = smooth((phaseT - 0.18) / (T_COALESCE - 0.18));
-        for (const b of birds) {
-          b.flap += dt * 14;
-          b.x += rand(-0.3, 0.3);
-          b.y += rand(-0.3, 0.3) - 12 * dt * grow;   /* gentle lift-off */
-          b.scale = grow;
-          b.draw();
-        }
-        if (phaseT >= T_COALESCE) { particles = []; setState('FLOCK'); }
-        break;
-      }
 
-      case 'FLOCK': {
-        const t = phaseT;
-        const cx = W * 0.5  + Math.sin(t * 1.1) * W * 0.26;
-        const cy = H * 0.42 + Math.sin(t * 1.6 + 1.7) * H * 0.20;
-        for (const b of birds) {
-          b.flockUpdate(dt, cx, cy, birds);
-          b.pose(dt, true);
-          b.draw();
-        }
-        if (phaseT >= T_FLOCK) {
-          /* the biggest bird nearest centre stays behind */
-          let best = birds[0], bs = -Infinity;
-          for (const b of birds) {
-            const d = Math.hypot(b.x - W / 2, b.y - H / 2);
-            const score = b.depth * 300 - d;
-            if (score > bs) { bs = score; best = b; }
-          }
-          heroBird = best;
-          setState('EXIT');
-        }
-        break;
-      }
-
-      case 'EXIT': {
-        for (const b of birds) {
-          if (b === heroBird) {
-            b.flockUpdate(dt, W * 0.5, H * 0.42, [b]);
-            b.pose(dt, true);
-          } else if (!b.gone) {
-            b.exitUpdate(dt);
-            b.pose(dt, false);
-          }
-          if (!b.gone) b.draw();
-        }
-        const others = birds.filter(b => b !== heroBird && !b.gone);
-        if (phaseT >= T_EXIT || others.length === 0) {
-          birds = [heroBird];
-          const cx = W * 0.5, cy = H * 0.44;
-          circle.t0 = Math.atan2((heroBird.y - cy) / (H * 0.24), (heroBird.x - cx) / (W * 0.33));
-          /* keep turning the way it was already turning */
-          const tangX = -Math.sin(circle.t0), tangY = Math.cos(circle.t0);
-          circle.dir = (heroBird.vx * tangX + heroBird.vy * tangY) >= 0 ? 1 : -1;
-          circle.x0 = heroBird.x;
-          circle.y0 = heroBird.y;
-          setState('CIRCLE');
-        }
-        break;
-      }
-
-      case 'CIRCLE': {
         const p  = clamp01(phaseT / T_CIRCLE);
-        const th = circle.t0 + circle.dir * TAU * 1.0 * easeInOutQuad(p);
+        const th = circle.t0 + circle.dir * TAU * 0.9 * easeInOutQuad(p);
         const cx = W * 0.5, cy = H * 0.44;
         const Rx = W * 0.33, Ry = H * 0.24;
         let ex = cx + Math.cos(th) * Rx;
         let ey = cy + Math.sin(th) * Ry;
-        const blend = smooth(p / 0.2);
+        const blend = smooth(p / 0.25);
         ex = lerp(circle.x0, ex, blend);
         ey = lerp(circle.y0, ey, blend);
 
@@ -1085,11 +947,11 @@
         b.x = ex; b.y = ey;
         b.glide = 0;
         b.pose(dt, false);
-        b.draw(1 + p * 1.1);
+        b.draw(1 + p * 1.3);
 
         if (p >= 1) {
           dive.x0 = b.x; dive.y0 = b.y;
-          dive.s0 = b.size * 2.1;
+          dive.s0 = b.size * 2.3;
           setState('DIVE');
         }
         break;
@@ -1156,10 +1018,10 @@
     clearTimeout(resizeId);
     resizeId = setTimeout(() => {
       resize();
-      birds = [];
       heroBird = null;
       blackout.style.transition = 'none';
       blackout.style.opacity = '0';
+      flockVid.classList.remove('dim');
       build();
       if (reduced) drawStatic();
       else setState('TEXT');
@@ -1177,6 +1039,16 @@
       ctx.fill();
     }
     ctx.globalAlpha = 1;
+  }
+
+  /* fade the footage in once it actually plays */
+  if (reduced) {
+    flockVid.removeAttribute('autoplay');
+    flockVid.pause();
+  } else {
+    const showVid = () => { if (!flockVid.paused) flockVid.classList.add('on'); };
+    flockVid.addEventListener('playing', showVid, { once: true });
+    if (!flockVid.paused && flockVid.readyState >= 2) showVid();
   }
 
   resize();
