@@ -224,11 +224,25 @@
     }
     .page-footer a:hover { color: var(--muted); }
 
+    /* ── the bird (after a tattoo), out in the margin ─────────── */
+    .page-footer { position: relative; }
+    .page-footer .mark {
+      position: absolute;
+      right: calc(50% - 50vw + 28px);   /* hug the viewport edge */
+      top: 60px;
+      width: 46px;
+      height: auto;
+      color: var(--ink);
+      transition: transform .3s ease;
+    }
+    .page-footer .mark:hover { transform: translateY(-3px) rotate(-4deg); }
+
     @media (max-width: 520px) {
       main { padding: 0 24px; }
       section.deck { padding: 72px 0; }
       .entry { grid-template-columns: 36px 1fr; gap: 12px; }
       .page-footer { flex-direction: column; gap: 20px; text-align: center; }
+      .page-footer .mark { position: static; margin: 4px auto 0; }
     }
   </style>
 </head>
@@ -369,6 +383,17 @@
   <footer class="page-footer">
     <span>unseen.codes</span>
     <a href="mailto:hello@unseen.codes">hello@unseen.codes</a>
+    <svg class="mark" viewBox="-60 -60 1190 980" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <g fill="none" stroke="currentColor" stroke-width="40" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M592,34 Q830,2 1068,8"/>
+          <path d="M1068,8 C975,92 838,182 712,240"/>
+          <path d="M596,30 L886,126"/>
+          <path d="M708,242 C792,232 905,245 975,322 C1038,395 1030,500 965,558 C928,593 875,612 830,616 C672,634 468,622 372,598"/>
+          <path d="M698,344 L178,262 L252,354 L20,420 L398,548"/>
+          <path d="M690,672 L706,806 L768,828"/>
+        </g>
+        <circle cx="688" cy="92" r="26" fill="currentColor"/>
+      </svg>
   </footer>
 
 <script>
