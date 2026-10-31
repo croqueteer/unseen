@@ -54,17 +54,19 @@
       100% { transform: translateY(-20vh); opacity: 0; }
     }
 
-    /* ── real flock footage, sky keyed to white ───────────────── */
-    #flock {
+    /* ── real footage layers (multiply: white vanishes into paper) */
+    #sky, #birds {
       position: absolute; inset: 0;
       width: 100%; height: 100%;
       object-fit: cover;
-      mix-blend-mode: multiply;   /* white sky vanishes into the paper */
+      mix-blend-mode: multiply;
       opacity: 0;
-      transition: opacity 1.4s ease;
       pointer-events: none;
     }
-    #flock.on { opacity: 1; }
+    #sky        { transition: opacity 2.5s ease; }
+    #sky.on     { opacity: 1; }
+    #birds      { transition: opacity 1s ease; }
+    #birds.burst { opacity: 1; transition: opacity .35s ease; }
 
     /* ── canvas ───────────────────────────────────────────────── */
     #canvas {
@@ -128,7 +130,7 @@
     @media (prefers-reduced-motion: reduce) {
       .ghost-line { animation: none; opacity: 0; }
       .hero-footer, .scroll-hint { animation: none; opacity: 1; transform: none; }
-      #flock { display: none; }
+      #sky, #birds { display: none; }
     }
 
     /* ── content sections ─────────────────────────────────────── */
@@ -229,9 +231,12 @@
 
   <section class="hero">
     <div id="ghost"></div>
-    <!-- starling murmuration, sky keyed to white; source footage:
-         https://www.pexels.com/video/murmurations-19378837/ (Pexels license) -->
-    <video id="flock" src="flock.mp4" autoplay muted loop playsinline aria-hidden="true"></video>
+    <!-- both layers from the same starling-murmuration footage:
+         https://www.pexels.com/video/murmurations-19378837/ (Pexels license).
+         sky.mp4 = temporal-median bird removal (clouds only);
+         birds.mp4 = flat-field keyed birds on white. -->
+    <video id="sky" src="sky.mp4" autoplay muted loop playsinline aria-hidden="true"></video>
+    <video id="birds" src="birds.mp4" muted loop playsinline preload="auto" aria-hidden="true"></video>
     <canvas id="canvas"></canvas>
 
     <div class="hero-footer">
@@ -405,7 +410,8 @@
   const canvas   = document.getElementById('canvas');
   const ctx      = canvas.getContext('2d');
   const hero     = document.querySelector('.hero');
-  const flockVid = document.getElementById('flock');
+  const skyVid   = document.getElementById('sky');
+  const birdsVid = document.getElementById('birds');
 
   const TAU     = Math.PI * 2;
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -464,9 +470,20 @@
       this.targetAlpha = rand(0.55, 0.95);
       this.color = particleColor();
       this.ox = 0;           /* glitch offset */
+      this.scatter = false;  /* exploded into the flock: drift away and fade */
     }
 
     update(k) {
+      if (this.scatter) {
+        const damp = Math.pow(0.97, k);
+        this.vx *= damp;
+        this.vy *= damp;
+        this.x  += this.vx * k;
+        this.y  += this.vy * k;
+        this.alpha += (0 - this.alpha) * 0.09 * k;
+        return;
+      }
+
       this.vx += ((this.tx + this.ox - this.x) * 0.048 + (Math.random() - .5) * 0.18) * k;
       this.vy += ((this.ty - this.y) * 0.048 + (Math.random() - .5) * 0.18) * k;
 
@@ -503,9 +520,50 @@
   let glitchTimer = 0;
   let glitching   = false;
 
+  let mode       = 'TEXT';           /* TEXT | BURST */
+  let burstT     = 0;
+  let cooldown   = 0;                /* seconds before the next burst may fire */
+  let armed      = true;             /* pointer must leave the logo to re-arm */
+  let hoverTimer = 0;
+  const logoC    = { x: 0, y: 0 };   /* logo centroid, set by build() */
+
+  const T_BURST = 3.6;               /* birds on screen before they leave */
+
   function build() {
     const pts = sampleText('unseen.codes');
     particles = pts.map(p => new Particle(p.x, p.y));
+    let sx = 0, sy = 0;
+    for (const p of pts) { sx += p.x; sy += p.y; }
+    logoC.x = pts.length ? sx / pts.length : W * 0.5;
+    logoC.y = pts.length ? sy / pts.length : H * 0.32;
+  }
+
+  /* ── the burst: logo explodes into the real flock ───────────── */
+  function burst() {
+    if (mode !== 'TEXT' || cooldown > 0 || reduced) return;
+    mode = 'BURST';
+    burstT = 0;
+    hoverTimer = 0;
+
+    for (const p of particles) {
+      const a  = Math.atan2(p.ty - logoC.y, p.tx - logoC.x) + rand(-0.5, 0.5);
+      const sp = rand(5, 14);
+      p.vx += Math.cos(a) * sp;
+      p.vy += Math.sin(a) * sp - rand(1, 4);   /* bias upward, like a startled flock */
+      p.scatter = true;
+    }
+
+    birdsVid.play();
+    birdsVid.classList.add('burst');
+  }
+
+  function endBurst() {
+    birdsVid.classList.remove('burst');
+    setTimeout(() => { if (!birdsVid.classList.contains('burst')) birdsVid.pause(); }, 1100);
+    build();            /* dots return and reassemble while the birds fade */
+    mode = 'TEXT';
+    cooldown = 2;
+    armed = false;      /* leave the logo before it can burst again */
   }
 
   function resize() {
@@ -545,10 +603,28 @@
     particles.forEach(p => { p.update(k); p.draw(); });
     ctx.globalAlpha = 1;
 
-    glitchTimer -= dt * 1000;
-    if (glitchTimer <= 0 && !glitching) {
-      glitchTimer = 3000 + Math.random() * 7000;
-      triggerGlitch();
+    if (mode === 'TEXT') {
+      cooldown = Math.max(0, cooldown - dt);
+
+      /* hover the logo → it explodes into the flock */
+      const nearText = MOUSE.x !== -9999 && particles.some(p => {
+        const dx = p.tx - MOUSE.x, dy = p.ty - MOUSE.y;
+        return dx * dx + dy * dy < 55 * 55;
+      });
+      if (!nearText) armed = true;
+      if (nearText && armed && cooldown <= 0) {
+        hoverTimer += dt * 1000;
+        if (hoverTimer >= 450) burst();
+      } else hoverTimer = 0;
+
+      glitchTimer -= dt * 1000;
+      if (glitchTimer <= 0 && !glitching) {
+        glitchTimer = 3000 + Math.random() * 7000;
+        triggerGlitch();
+      }
+    } else {
+      burstT += dt;
+      if (burstT >= T_BURST) endBurst();
     }
   }
 
@@ -569,12 +645,26 @@
   hero.addEventListener('touchend', () => {
     MOUSE.x = MOUSE.y = -9999;
   });
+  /* tap/click on the logo works too */
+  canvas.addEventListener('click', e => {
+    const rect = hero.getBoundingClientRect();
+    const x = e.clientX - rect.left, y = e.clientY - rect.top;
+    const near = particles.some(p => {
+      const dx = p.tx - x, dy = p.ty - y;
+      return dx * dx + dy * dy < 70 * 70;
+    });
+    if (near) burst();
+  });
 
   let resizeId;
   window.addEventListener('resize', () => {
     clearTimeout(resizeId);
     resizeId = setTimeout(() => {
       resize();
+      birdsVid.classList.remove('burst');
+      birdsVid.pause();
+      mode = 'TEXT';
+      cooldown = 0;
       build();
       if (reduced) drawStatic();
     }, 150);
@@ -593,14 +683,14 @@
     ctx.globalAlpha = 1;
   }
 
-  /* fade the footage in once it actually plays */
+  /* fade the sky in once it actually plays */
   if (reduced) {
-    flockVid.removeAttribute('autoplay');
-    flockVid.pause();
+    skyVid.removeAttribute('autoplay');
+    skyVid.pause();
   } else {
-    const showVid = () => { if (!flockVid.paused) flockVid.classList.add('on'); };
-    flockVid.addEventListener('playing', showVid, { once: true });
-    if (!flockVid.paused && flockVid.readyState >= 2) showVid();
+    const showSky = () => { if (!skyVid.paused) skyVid.classList.add('on'); };
+    skyVid.addEventListener('playing', showSky, { once: true });
+    if (!skyVid.paused && skyVid.readyState >= 2) showSky();
   }
 
   resize();
